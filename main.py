@@ -5,10 +5,25 @@ import json
 import urllib.request
 import urllib.error
 import datetime
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, Bot
+import tempfile
+import subprocess
+from io import BytesIO
+
+from telegram import (
+    Update,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    Bot
+)
 from telegram.ext import (
-    Updater, CommandHandler, MessageHandler, Filters,
-    CallbackContext, ConversationHandler, CallbackQueryHandler, JobQueue
+    Updater,
+    CommandHandler,
+    MessageHandler,
+    Filters,
+    CallbackContext,
+    ConversationHandler,
+    CallbackQueryHandler,
+    JobQueue
 )
 
 # Enable logging
@@ -38,6 +53,13 @@ expat_topics = [
     "Besuch beim Arzt in Deutschland",
     # Add more topics as needed
 ]
+
+# Define voice lists based on gender
+male_voices = ['alloy', 'onyx']     # Replace with actual male voice names from your TTS service
+female_voices = ['echo', 'fable', 'nova', 'shimmer']  # Replace with actual female voice names from your TTS service
+
+# Path to the static image to be used in the video note (if applicable)
+image_url = "https://www.stuttgarter-nachrichten.de/media.media.2181c3bc-5761-482c-9a2a-fa15a51b9dbb.original1024.jpg"
 
 def start(update: Update, context: CallbackContext) -> int:
     logger.info("User started the bot.")
@@ -171,72 +193,201 @@ def receive_topic(update: Update, context: CallbackContext) -> int:
     return generate_and_send_story(update, context, topic, user_level)
 
 def generate_and_send_story(update: Update, context: CallbackContext, topic: str, user_level: str) -> int:
+    # Step 1: Generate the story based on the topic and user level
     story = generate_story(topic, user_level)
 
-    if story:
-        context.user_data['story'] = story
-        update.message.reply_text("🎧 Die Geschichte wird jetzt generiert...")
-        logger.info("Story generated successfully.")
-
-        # Store vocabulary for tracking
-        vocabulary = generate_vocabulary(story)
-        if vocabulary:
-            user_id = update.effective_user.id
-            user_vocab = context.bot_data.setdefault('user_vocab', {})
-            user_vocab.setdefault(user_id, []).extend(vocabulary.split('\n'))
-            logger.info(f"Vocabulary stored for user {user_id}.")
-
-        audio_file = generate_audio(story)
-
-        if audio_file:
-            with open(audio_file, 'rb') as audio:
-                update.message.reply_voice(
-                    voice=audio,
-                    caption=f"Hier ist deine Geschichte über '{topic}'! 🎧"
-                )
-            logger.info("Audio file sent to user.")
-            # Send options
-            keyboard = [
-                [InlineKeyboardButton("❓ Fragen erhalten", callback_data='get_questions')],
-                [InlineKeyboardButton("📄 Text anzeigen", callback_data='show_text')],
-                [InlineKeyboardButton("📚 Vokabeln anzeigen", callback_data='check_vocabulary')],
-                [InlineKeyboardButton("🔄 Thema wechseln", callback_data='change_topic')],
-                [InlineKeyboardButton("🌐 Level ändern", callback_data='change_level')],
-                [InlineKeyboardButton("🔄 Reset", callback_data='reset')]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            update.message.reply_text("Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
-            return STORY_SENT
-        else:
-            logger.error("Failed to generate audio.")
-            update.message.reply_text('Entschuldigung, es gab einen Fehler bei der Audio-Generierung.')
-
-            # Provide options again
-            keyboard = [
-                [InlineKeyboardButton("📝 Start", callback_data='start')],
-                [InlineKeyboardButton("📖 Tägliche Geschichte abonnieren", callback_data='subscribe_daily')],
-                [InlineKeyboardButton("📚 Vokabeln überprüfen", callback_data='review_vocabulary')],
-                [InlineKeyboardButton("🔄 Reset", callback_data='reset')],
-                [InlineKeyboardButton("🌐 Level ändern", callback_data='change_level')]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            update.message.reply_text("Bitte wähle eine Option:", reply_markup=reply_markup)
-            return LEVEL
-    else:
+    if not story:
         logger.error("Failed to generate story.")
         update.message.reply_text('Entschuldigung, es gab einen Fehler bei der Geschichte-Generierung.')
-
-        # Provide options again
-        keyboard = [
-            [InlineKeyboardButton("📝 Start", callback_data='start')],
-            [InlineKeyboardButton("📖 Tägliche Geschichte abonnieren", callback_data='subscribe_daily')],
-            [InlineKeyboardButton("📚 Vokabeln überprüfen", callback_data='review_vocabulary')],
-            [InlineKeyboardButton("🔄 Reset", callback_data='reset')],
-            [InlineKeyboardButton("🌐 Level ändern", callback_data='change_level')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text("Bitte wähle eine Option:", reply_markup=reply_markup)
         return LEVEL
+
+    context.user_data['story'] = story
+    update.message.reply_text("🎧 Die Geschichte wird jetzt generiert...")
+    logger.info("Story generated successfully.")
+
+    # Step 2: Generate the audio from the story
+    # Voice selection based on the video
+    video_options = ['scholz.mov', 'merkel.mov']
+    selected_video = random.choice(video_options)
+    logger.info(f"Selected video: {selected_video}")
+
+    # Define voice lists
+    if selected_video == 'scholz.mov':
+        voice_type = 'male'
+        available_voices = male_voices
+    elif selected_video == 'merkel.mov':
+        voice_type = 'female'
+        available_voices = female_voices
+    else:
+        voice_type = 'neutral'
+        available_voices = male_voices + female_voices  # Default to all voices
+
+    # Select a voice based on the video
+    selected_voice = random.choice(available_voices)
+    logger.info(f"Selected voice ({voice_type}): {selected_voice}")
+
+    # Generate audio with the selected voice
+    audio_file = generate_audio(story, selected_voice)
+    if not audio_file:
+        logger.error("Failed to generate audio.")
+        update.message.reply_text('Entschuldigung, es gab einen Fehler bei der Audio-Generierung.')
+        return LEVEL
+
+    # Ensure the selected video exists
+    if not os.path.exists(selected_video):
+        logger.error(f"Video file {selected_video} does not exist.")
+        update.message.reply_text("Entschuldigung, das ausgewählte Basisvideo ist nicht verfügbar.")
+        os.remove(audio_file)  # Clean up audio file
+        return LEVEL
+
+    # Step 3: Create a temporary file for the output video
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_video:
+        output_video_path = temp_video.name
+
+    try:
+        # Step 4: Define the FFmpeg command to loop the video and combine with audio
+        ffmpeg_command = [
+            'ffmpeg',
+            '-y',  # Overwrite output files without asking
+            '-stream_loop', '-1',  # Loop the video indefinitely
+            '-i', selected_video,  # Input video file
+            '-i', audio_file,  # Input audio file
+            '-c:v', 'libx264',  # Video codec
+            '-c:a', 'aac',  # Audio codec
+            '-b:a', '128k',  # Audio bitrate
+            '-ar', '44100',  # Audio sample rate
+            '-ac', '1',  # Set audio channels to mono
+            '-shortest',  # Stop encoding when the shortest input ends (audio)
+            '-vf', 'scale=240:240,setsar=1:1',  # Scale video to 240x240 and set SAR
+            '-map', '0:v:0',  # Map the first video stream
+            '-map', '1:a:0',  # Map the first audio stream
+            '-f', 'mp4',  # Output format
+            output_video_path  # Output file path
+        ]
+
+        logger.info(f"Running FFmpeg command: {' '.join(ffmpeg_command)}")
+
+        # Step 5: Execute the FFmpeg command
+        process = subprocess.Popen(
+            ffmpeg_command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        stdout_data, stderr_data = process.communicate()
+
+        # Optional: Log FFmpeg's stdout and stderr for debugging
+        logger.debug(f"FFmpeg stdout: {stdout_data.decode()}")
+        logger.debug(f"FFmpeg stderr: {stderr_data.decode()}")
+
+        # Check for FFmpeg errors
+        if process.returncode != 0:
+            logger.error(f"FFmpeg failed: {stderr_data.decode()}")
+            update.message.reply_text("Entschuldigung, es gab einen Fehler bei der Video-Generierung.")
+            os.remove(audio_file)  # Clean up audio file
+            os.remove(output_video_path)  # Clean up video file
+            return LEVEL
+
+        # Step 6: Verify the output video has an audio stream
+        probe_output = subprocess.run(
+            [
+                'ffprobe',
+                '-v', 'error',
+                '-show_entries', 'stream=codec_type',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                output_video_path
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        streams = probe_output.stdout.decode().strip().split('\n')
+        if 'audio' not in streams:
+            logger.error("FFmpeg did not embed audio into the video.")
+            update.message.reply_text("Entschuldigung, es gab einen Fehler beim Einbetten der Audio in das Video.")
+            os.remove(audio_file)  # Clean up audio file
+            os.remove(output_video_path)  # Clean up video file
+            return LEVEL
+
+        video_size = os.path.getsize(output_video_path)
+        logger.info(f"Video created successfully with size {video_size} bytes.")
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"FFmpeg failed: {e}")
+        update.message.reply_text("Entschuldigung, es gab einen Fehler bei der Video-Generierung.")
+        os.remove(audio_file)  # Clean up audio file
+        os.remove(output_video_path)  # Clean up video file
+        return LEVEL
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during video processing: {e}")
+        update.message.reply_text("Entschuldigung, es gab einen unerwarteten Fehler bei der Video-Generierung.")
+        os.remove(audio_file)  # Clean up audio file
+        os.remove(output_video_path)  # Clean up video file
+        return LEVEL
+
+    # Step 7: Send the video as a regular video message
+    try:
+        with open(output_video_path, 'rb') as video_file:
+            update.message.reply_video(
+                video=video_file,
+                caption="🎥 Hier ist deine Geschichte!",
+                supports_streaming=True
+            )
+        logger.info("Video sent to user.")
+    except Exception as e:
+        logger.error(f"Failed to send video: {e}")
+        update.message.reply_text("Entschuldigung, es gab einen Fehler beim Senden des Videos.")
+        return LEVEL
+    finally:
+        os.remove(output_video_path)  # Clean up video file
+
+    # Step 8: Send the options keyboard
+    keyboard = [
+        [InlineKeyboardButton("❓ Fragen erhalten", callback_data='get_questions')],
+        [InlineKeyboardButton("📄 Text anzeigen", callback_data='show_text')],
+        [InlineKeyboardButton("📚 Vokabeln anzeigen", callback_data='check_vocabulary')],
+        [InlineKeyboardButton("🔄 Thema wechseln", callback_data='change_topic')],
+        [InlineKeyboardButton("🌐 Level ändern", callback_data='change_level')],
+        [InlineKeyboardButton("🔄 Reset", callback_data='reset')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text("Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
+    return STORY_SENT
+
+def generate_audio(text: str, voice: str) -> str:
+    logger.info(f"Generating audio with voice: {voice}")
+
+    url = "https://api.openai.com/v1/audio/speech"  # Replace with your actual TTS API endpoint
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {openai_api_key}"
+    }
+    data = {
+        "model": "tts-1",  # Replace with your actual TTS model if different
+        "input": text,
+        "voice": voice
+    }
+
+    try:
+        logger.info("Sending request to TTS API for audio.")
+        request = urllib.request.Request(
+            url, data=json.dumps(data).encode('utf-8'), headers=headers
+        )
+        response = urllib.request.urlopen(request)
+        audio_content = response.read()
+
+        # Write to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.ogg') as temp_audio:
+            temp_audio.write(audio_content)
+            temp_audio_path = temp_audio.name
+        logger.info("Audio file generated and saved.")
+        return temp_audio_path
+    except urllib.error.HTTPError as e:
+        error_response = e.read().decode()
+        error_message = json.loads(error_response).get('error', {}).get('message', 'Unknown error')
+        logger.error(f"Error generating audio: {e.code} - {error_message}")
+        return None
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return None
 
 def send_questions(query, context) -> int:
     story = context.user_data.get('story')
@@ -401,8 +552,12 @@ def generate_feedback(story: str, questions: str, user_answers: list) -> str:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {openai_api_key}"
     }
-    prompt = f"Hier ist eine Geschichte:\n\n{story}\n\nHier sind die Fragen:\n{questions}\n\nHier sind die Antworten des Lerners:\n" + \
-             "\n".join(user_answers) + "\n\nBitte überprüfe die Antworten und gib Feedback auf Deutsch:"
+    prompt = (
+        f"Hier ist eine Geschichte:\n\n{story}\n\n"
+        f"Hier sind die Fragen:\n{questions}\n\n"
+        f"Hier sind die Antworten des Lerners:\n" + "\n".join(user_answers) +
+        "\n\nBitte überprüfe die Antworten und gib Feedback auf Deutsch:"
+    )
     data = {
         "model": "gpt-4o-mini",
         "messages": [
@@ -436,7 +591,10 @@ def generate_vocabulary(story: str) -> str:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {openai_api_key}"
     }
-    prompt = f"Extrahiere die wichtigsten Vokabeln aus dem folgenden Text und gib eine Liste mit Übersetzungen ins Englische:\n\n{story}\n\nVokabelliste (immer nutzen DER DIE DAS):"
+    prompt = (
+        f"Extrahiere die wichtigsten Vokabeln aus dem folgenden Text und gib eine Liste mit Übersetzungen ins Englische:\n\n{story}\n\n"
+        "Vokabelliste (immer nutzen DER DIE DAS):"
+    )
     data = {
         "model": "gpt-4o-mini",
         "messages": [
@@ -504,7 +662,12 @@ def generate_story(topic: str, level: str) -> str:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {openai_api_key}"
     }
-    prompt = f"Erstelle eine interessante Geschichte auf Deutsch über '{topic}', die für Deutschlerner auf Niveau {level} geeignet ist. Die Geschichte sollte mindestens 5 Minuten beim Vorlesen dauern und so gestaltet sein, dass man anschließend einfache Fragen dazu stellen kann. Verwende nützliches Vokabular, das für eine nachfolgende Übung hilfreich ist, und baue dabei alltägliche Themen ein, die das Sprachverständnis fördern."
+    prompt = (
+        f"Erstelle eine interessante Geschichte auf Deutsch über '{topic}', "
+        f"die für Deutschlerner auf Niveau {level} geeignet ist. "
+        f"Die Geschichte sollte MAXIMUM 60 sekunden beim Vorlesen dauern und so gestaltet sein, dass man anschließend einfache Fragen dazu stellen kann. "
+        f"Verwende nützliches Vokabular, das für eine nachfolgende Übung hilfreich ist, und baue dabei alltägliche Themen ein, die das Sprachverständnis fördern."
+    )
     data = {
         "model": "gpt-4o-mini",
         "messages": [
@@ -530,36 +693,34 @@ def generate_story(topic: str, level: str) -> str:
         logger.error(f"An unexpected error occurred: {e}")
         return None
 
-def generate_audio(text: str) -> str:
-    # Randomly select a voice from the list
-    voices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']
-    selected_voice = random.choice(voices)
-    logger.info(f"Selected voice for TTS: {selected_voice}")
+def generate_audio(text: str, voice: str) -> str:
+    logger.info(f"Generating audio with voice: {voice}")
 
-    url = "https://api.openai.com/v1/audio/speech"
+    url = "https://api.openai.com/v1/audio/speech"  # Replace with your actual TTS API endpoint
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {openai_api_key}"
     }
     data = {
-        "model": "tts-1",
+        "model": "tts-1",  # Replace with your actual TTS model if different
         "input": text,
-        "voice": selected_voice
+        "voice": voice
     }
 
     try:
-        logger.info("Sending request to OpenAI API for audio.")
+        logger.info("Sending request to TTS API for audio.")
         request = urllib.request.Request(
             url, data=json.dumps(data).encode('utf-8'), headers=headers
         )
         response = urllib.request.urlopen(request)
         audio_content = response.read()
 
-        audio_file_path = 'story.ogg'
-        with open(audio_file_path, 'wb') as audio_file:
-            audio_file.write(audio_content)
+        # Write to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.ogg') as temp_audio:
+            temp_audio.write(audio_content)
+            temp_audio_path = temp_audio.name
         logger.info("Audio file generated and saved.")
-        return audio_file_path
+        return temp_audio_path
     except urllib.error.HTTPError as e:
         error_response = e.read().decode()
         error_message = json.loads(error_response).get('error', {}).get('message', 'Unknown error')
@@ -603,11 +764,11 @@ def send_daily_story(context: CallbackContext):
             chat_id = user_id
             bot.send_message(chat_id, "Guten Morgen! Hier ist deine tägliche Geschichte. 📖")
 
-            # Create an update object for the user
-            # Note: This is a workaround since we don't have an actual update
-            user_chat = bot.get_chat(chat_id)
+            # Generate and send the story
+            # Create a dummy Update and CallbackContext for the function
+            # Note: This is a workaround since we don't have an actual Update object
             update = Update(update_id=0, message=bot.send_message(chat_id, ""))
-            update.effective_user = user_chat
+            update.effective_user = bot.get_chat(chat_id)
             new_context = CallbackContext.from_update(update, bot)
             new_context.user_data = {}
             new_context.bot_data = context.bot_data
@@ -620,12 +781,15 @@ def send_daily_story(context: CallbackContext):
 def main():
     # Fetch tokens securely from environment variables
     telegram_bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-    openai_api_key = os.environ.get('OPENAI_API_KEY')
+    openai_api_key_env = os.environ.get('OPENAI_API_KEY')  # Avoid overwriting the global variable
 
     # Check if tokens are available
-    if not telegram_bot_token or not openai_api_key:
+    if not telegram_bot_token or not openai_api_key_env:
         logger.error("Bot token or OpenAI API key not set in environment variables.")
         return
+
+    global openai_api_key
+    openai_api_key = openai_api_key_env  # Assign to the global variable used in functions
 
     # Initialize the updater and dispatcher
     updater = Updater(telegram_bot_token, use_context=True)
@@ -664,6 +828,7 @@ def main():
     # Set up daily job for sending stories
     job_queue = updater.job_queue
 
+    # Schedule the daily story at 11:00 AM
     target_time = datetime.time(hour=11, minute=0)
     job_queue.run_daily(send_daily_story, time=target_time, context=dispatcher)
 

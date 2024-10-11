@@ -1,19 +1,16 @@
 app = "deutschifytelegram"
 primary_region = "fra"
 
-[build]
-  builder = "paketobuildpacks/builder:base"
-
-  # Corrected the buildpacks section
-  buildpacks = ["heroku-community/ffmpeg"]
-
 [env]
   PORT = "8080"
   FLY_APP_NAME = "deutschifytelegram"
+  OPENAI_API_KEY = "${OPENAI_API_KEY}"
+  TELEGRAM_BOT_TOKEN = "${TELEGRAM_BOT_TOKEN}"
 
 [[services]]
   internal_port = 8080
   protocol = "tcp"
+  # Removed the 'processes' field as Docker manages the startup command
 
   [[services.ports]]
     handlers = ["http"]
