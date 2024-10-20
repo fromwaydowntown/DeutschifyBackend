@@ -2,19 +2,12 @@ import logging
 import os
 import random
 import json
-import urllib.request
-import urllib.error
 import datetime
 import tempfile
-import subprocess
+import requests
 from io import BytesIO
-
-from telegram import (
-    Update,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    Bot
-)
+from bs4 import BeautifulSoup
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Updater,
     CommandHandler,
@@ -23,8 +16,8 @@ from telegram.ext import (
     CallbackContext,
     ConversationHandler,
     CallbackQueryHandler,
-    JobQueue
 )
+from pathlib import Path
 
 # Enable logging
 logging.basicConfig(
@@ -33,47 +26,51 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Define conversation states
-LEVEL, TOPIC, STORY_SENT, ANSWERING_QUESTIONS, CHECKING_VOCABULARY, CHECKING_ANSWERS = range(6)
+LEVEL, SELECTING_ARTICLE, ARTICLE_SENT, ANSWERING_QUESTIONS = range(4)
 
 # Fetch tokens securely from environment variables
 openai_api_key = os.environ.get('OPENAI_API_KEY')
 telegram_bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
 
-# List of topics related to living in Germany as an expat learning German
-expat_topics = [
-    "Einkaufen im deutschen Supermarkt",
-    "Öffentliche Verkehrsmittel nutzen",
-    "Wohnungssuche in Deutschland",
-    "Deutsche Bürokratie verstehen",
-    "Freizeitaktivitäten in deiner Stadt",
-    "Arbeiten in einem deutschen Unternehmen",
-    "Deutschsprachige Freunde finden",
-    "Kulturelle Unterschiede erleben",
-    "Deutsche Feste und Traditionen",
-    "Besuch beim Arzt in Deutschland",
-    # Add more topics as needed
-]
+# Define voice lists based on gender (replace with actual voices if needed)
+male_voices = ['alloy', 'onyx']
+female_voices = ['echo', 'fable', 'nova', 'shimmer']
 
-# Define voice lists based on gender
-male_voices = ['alloy', 'onyx']     # Replace with actual male voice names from your TTS service
-female_voices = ['echo', 'fable', 'nova', 'shimmer']  # Replace with actual female voice names from your TTS service
+# Path to the JSON file where news articles will be saved
+NEWS_JSON_PATH = Path("news_articles.json")
 
-# Path to the static image to be used in the video note (if applicable)
-image_url = "https://www.stuttgarter-nachrichten.de/media.media.2181c3bc-5761-482c-9a2a-fa15a51b9dbb.original1024.jpg"
+# Helper functions
+def send_message(update: Update, context: CallbackContext, text: str, reply_markup=None):
+    if update.message:
+        update.message.reply_text(text, reply_markup=reply_markup)
+    elif update.callback_query:
+        context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
+    else:
+        context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
 
+def safe_edit_message_text(update: Update, context: CallbackContext, text, reply_markup=None):
+    try:
+        if update.callback_query and update.callback_query.message:
+            update.callback_query.edit_message_text(text=text, reply_markup=reply_markup)
+        else:
+            context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Failed to edit message: {e}")
+        context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
+
+# Start function
 def start(update: Update, context: CallbackContext) -> int:
     logger.info("User started the bot.")
+    # Load news articles from disk or fetch if not available
+    update_news_articles(context)
     keyboard = [
-        [InlineKeyboardButton("📝 Start", callback_data='start')],
-        [InlineKeyboardButton("📖 Tägliche Geschichte abonnieren", callback_data='subscribe_daily')],
+        [InlineKeyboardButton("📰 Nachrichten", callback_data='news')],
         [InlineKeyboardButton("📚 Vokabeln überprüfen", callback_data='review_vocabulary')],
         [InlineKeyboardButton("🔄 Reset", callback_data='reset')],
         [InlineKeyboardButton("🌐 Level ändern", callback_data='change_level')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text(
-        "👋 Willkommen zum Deutsch Lern Bot! Bitte wähle eine Option:", reply_markup=reply_markup
-    )
+    send_message(update, context, "👋 Willkommen zum Deutsch Lern Bot! Bitte wähle eine Option:", reply_markup=reply_markup)
     return LEVEL
 
 def button_handler(update: Update, context: CallbackContext) -> int:
@@ -83,477 +80,357 @@ def button_handler(update: Update, context: CallbackContext) -> int:
     query.answer()
 
     if data == 'start':
-        return ask_level(query, context)
+        return start(update, context)
     elif data == 'change_level':
-        return ask_level(query, context)
+        return ask_level(update, context)
     elif data == 'reset':
         context.user_data.clear()
         logger.info("User reset the bot.")
-        query.edit_message_text("🔄 Bot wurde zurückgesetzt. Bitte starte erneut.")
-        return start(update, context)  # Return to start
-    elif data == 'subscribe_daily':
-        user_id = update.effective_user.id
-        context.bot_data.setdefault('subscribers', set()).add(user_id)
-        logger.info(f"User {user_id} subscribed to daily stories.")
-        query.edit_message_text("✅ Du hast dich erfolgreich für tägliche Geschichten angemeldet!")
-
-        # Provide options again
-        keyboard = [
-            [InlineKeyboardButton("📝 Start", callback_data='start')],
-            [InlineKeyboardButton("📖 Tägliche Geschichte abbestellen", callback_data='unsubscribe_daily')],
-            [InlineKeyboardButton("📚 Vokabeln überprüfen", callback_data='review_vocabulary')],
-            [InlineKeyboardButton("🔄 Reset", callback_data='reset')],
-            [InlineKeyboardButton("🌐 Level ändern", callback_data='change_level')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        query.message.reply_text("Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
-        return LEVEL
-    elif data == 'unsubscribe_daily':
-        user_id = update.effective_user.id
-        context.bot_data.setdefault('subscribers', set()).discard(user_id)
-        logger.info(f"User {user_id} unsubscribed from daily stories.")
-        query.edit_message_text("❌ Du hast dich von täglichen Geschichten abgemeldet.")
-
-        # Provide options again
-        keyboard = [
-            [InlineKeyboardButton("📝 Start", callback_data='start')],
-            [InlineKeyboardButton("📖 Tägliche Geschichte abonnieren", callback_data='subscribe_daily')],
-            [InlineKeyboardButton("📚 Vokabeln überprüfen", callback_data='review_vocabulary')],
-            [InlineKeyboardButton("🔄 Reset", callback_data='reset')],
-            [InlineKeyboardButton("🌐 Level ändern", callback_data='change_level')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        query.message.reply_text("Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
-        return LEVEL
+        safe_edit_message_text(update, context, "🔄 Bot wurde zurückgesetzt. Bitte starte erneut.")
+        return start(update, context)
+    elif data == 'news':
+        return show_news_list(update, context)
+    elif data in ['get_questions', 'show_text', 'check_vocabulary', 'review_vocabulary', 'check_answers']:
+        # Existing handlers
+        if data == 'get_questions':
+            return send_questions(update, context)
+        elif data == 'show_text':
+            return send_text(update, context)
+        elif data == 'check_vocabulary':
+            return send_vocabulary(update, context)
+        elif data == 'review_vocabulary':
+            return review_vocabulary(update, context)
+        elif data == 'check_answers':
+            return check_answers(update, context)
     elif data in ['A1', 'A2', 'B1']:
         context.user_data['level'] = data
-        # Store user's level in bot_data for daily stories
+        # Store user's level in bot_data for future use
         user_id = update.effective_user.id
         context.bot_data.setdefault('user_levels', {})[user_id] = data
         logger.info(f"User selected level: {data}")
-        return ask_topic(query, context)
-    elif data == 'get_questions':
-        return send_questions(query, context)
-    elif data == 'show_text':
-        return send_text(query, context)
-    elif data == 'change_topic':
-        return ask_topic(query, context)
-    elif data == 'check_vocabulary':
-        return send_vocabulary(query, context)
-    elif data == 'review_vocabulary':
-        return review_vocabulary(query, context)
-    elif data == 'check_answers':
-        return check_answers(query, context)
+        # After selecting level, present options
+        return start(update, context)
     else:
-        query.edit_message_text("Unbekannte Option.")
-
+        safe_edit_message_text(update, context, "Unbekannte Option.")
         # Provide options again
         keyboard = [
-            [InlineKeyboardButton("📝 Start", callback_data='start')],
-            [InlineKeyboardButton("📖 Tägliche Geschichte abonnieren", callback_data='subscribe_daily')],
+            [InlineKeyboardButton("📰 Nachrichten", callback_data='news')],
             [InlineKeyboardButton("📚 Vokabeln überprüfen", callback_data='review_vocabulary')],
             [InlineKeyboardButton("🔄 Reset", callback_data='reset')],
             [InlineKeyboardButton("🌐 Level ändern", callback_data='change_level')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        query.message.reply_text("Bitte wähle eine Option:", reply_markup=reply_markup)
+        send_message(update, context, "Bitte wähle eine Option:", reply_markup=reply_markup)
         return LEVEL
 
-def ask_level(entry_point, context) -> int:
+def ask_level(update: Update, context) -> int:
     logger.info("Asking user for language level.")
     keyboard = [
         [InlineKeyboardButton("A1", callback_data='A1'), InlineKeyboardButton("A2", callback_data='A2')],
         [InlineKeyboardButton("B1", callback_data='B1')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    if isinstance(entry_point, Update):
-        entry_point.message.reply_text("Bitte wähle dein Deutschniveau:", reply_markup=reply_markup)
-    else:
-        entry_point.edit_message_text("Bitte wähle dein Deutschniveau:", reply_markup=reply_markup)
+    send_message(update, context, "Bitte wähle dein Deutschniveau:", reply_markup=reply_markup)
     return LEVEL
 
-def ask_topic(entry_point, context) -> int:
-    logger.info("Asking user for topic.")
-    if isinstance(entry_point, Update):
-        entry_point.message.reply_text("📝 Gib bitte das Thema ein, über das du eine Geschichte möchtest:")
-    else:
-        entry_point.edit_message_text("📝 Gib bitte das Thema ein, über das du eine Geschichte möchtest:")
-    return TOPIC
+def level_received(update: Update, context: CallbackContext) -> int:
+    user_level = update.message.text.upper()
+    if user_level not in ['A1', 'A2', 'B1']:
+        send_message(update, context, "Bitte gib ein gültiges Niveau ein (A1, A2, B1):")
+        return LEVEL
+    context.user_data['level'] = user_level
+    # Store user's level in bot_data for future use
+    user_id = update.effective_user.id
+    context.bot_data.setdefault('user_levels', {})[user_id] = user_level
+    logger.info(f"User provided level: {user_level}")
+    # After selecting level, present options
+    return start(update, context)
 
-def receive_topic(update: Update, context: CallbackContext) -> int:
-    topic = update.message.text
+def show_news_list(update, context) -> int:
     user_level = context.user_data.get('level')
-
     if not user_level:
-        update.message.reply_text("Bitte wähle zuerst dein Deutschniveau.")
+        send_message(update, context, "Bitte wähle zuerst dein Deutschniveau.")
+        return ask_level(update, context)
+
+    news_articles = context.bot_data.get('news_articles', [])
+    if not news_articles:
+        send_message(update, context, "Es sind derzeit keine Nachrichten verfügbar. Bitte versuche es später erneut.")
         return LEVEL
 
-    logger.info(f"User provided topic: {topic}")
-    update.message.reply_text("✨ Geschichte wird erstellt, bitte warten... ⏳")
-    return generate_and_send_story(update, context, topic, user_level)
+    # Generate a numbered list of articles
+    articles_list = ""
+    for idx, article in enumerate(news_articles[:10], start=1):  # Show top 10 articles
+        article_title = article.get('short_title', article['title'])
+        articles_list += f"{idx}. {article_title}\n"
 
-def generate_and_send_story(update: Update, context: CallbackContext, topic: str, user_level: str) -> int:
-    # Step 1: Generate the story based on the topic and user level
-    story = generate_story(topic, user_level)
+    message_text = "Bitte wähle einen Nachrichtenartikel, indem du seine Nummer eingibst:\n\n" + articles_list
+    send_message(update, context, message_text)
+    return SELECTING_ARTICLE
 
-    if not story:
-        logger.error("Failed to generate story.")
-        update.message.reply_text('Entschuldigung, es gab einen Fehler bei der Geschichte-Generierung.')
-        return LEVEL
+def select_article(update: Update, context: CallbackContext) -> int:
+    user_input = update.message.text.strip()
+    if not user_input.isdigit():
+        send_message(update, context, "Bitte gib eine gültige Zahl ein.")
+        return SELECTING_ARTICLE
 
-    context.user_data['story'] = story
-    update.message.reply_text("🎧 Die Geschichte wird jetzt generiert...")
-    logger.info("Story generated successfully.")
+    idx = int(user_input) - 1  # Adjust for zero-based index
+    news_articles = context.bot_data.get('news_articles', [])
+    if idx < 0 or idx >= len(news_articles[:10]):
+        send_message(update, context, "Bitte gib eine Zahl aus der Liste ein.")
+        return SELECTING_ARTICLE
 
-    # Step 2: Generate the audio from the story
-    # Voice selection based on the video
-    video_options = ['scholz.mov', 'merkel.mov']
-    selected_video = random.choice(video_options)
-    logger.info(f"Selected video: {selected_video}")
+    context.user_data['selected_article_index'] = idx
+    return adapt_and_send_news_article(update, context, idx)
 
-    # Define voice lists
-    if selected_video == 'scholz.mov':
-        voice_type = 'male'
-        available_voices = male_voices
-    elif selected_video == 'merkel.mov':
-        voice_type = 'female'
-        available_voices = female_voices
-    else:
-        voice_type = 'neutral'
-        available_voices = male_voices + female_voices  # Default to all voices
-
-    # Select a voice based on the video
-    selected_voice = random.choice(available_voices)
-    logger.info(f"Selected voice ({voice_type}): {selected_voice}")
-
-    # Generate audio with the selected voice
-    audio_file = generate_audio(story, selected_voice)
-    if not audio_file:
-        logger.error("Failed to generate audio.")
-        update.message.reply_text('Entschuldigung, es gab einen Fehler bei der Audio-Generierung.')
-        return LEVEL
-
-    # Ensure the selected video exists
-    if not os.path.exists(selected_video):
-        logger.error(f"Video file {selected_video} does not exist.")
-        update.message.reply_text("Entschuldigung, das ausgewählte Basisvideo ist nicht verfügbar.")
-        os.remove(audio_file)  # Clean up audio file
-        return LEVEL
-
-    # Step 3: Create a temporary file for the output video
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_video:
-        output_video_path = temp_video.name
-
+def adapt_and_send_news_article(update, context, idx) -> int:
     try:
-        # Step 4: Define the FFmpeg command to loop the video and combine with audio
-        ffmpeg_command = [
-            'ffmpeg',
-            '-y',  # Overwrite output files without asking
-            '-stream_loop', '-1',  # Loop the video indefinitely
-            '-i', selected_video,  # Input video file
-            '-i', audio_file,  # Input audio file
-            '-c:v', 'libx264',  # Video codec
-            '-c:a', 'aac',  # Audio codec
-            '-b:a', '128k',  # Audio bitrate
-            '-ar', '44100',  # Audio sample rate
-            '-ac', '1',  # Set audio channels to mono
-            '-shortest',  # Stop encoding when the shortest input ends (audio)
-            '-vf', 'scale=240:240,setsar=1:1',  # Scale video to 240x240 and set SAR
-            '-map', '0:v:0',  # Map the first video stream
-            '-map', '1:a:0',  # Map the first audio stream
-            '-f', 'mp4',  # Output format
-            output_video_path  # Output file path
+        user_level = context.user_data.get('level')
+        news_articles = context.bot_data.get('news_articles', [])
+        if idx < 0 or idx >= len(news_articles):
+            send_message(update, context, "Ungültige Auswahl.")
+            return LEVEL
+
+        article = news_articles[idx]
+        context.user_data['selected_article'] = article
+
+        send_message(update, context, "✨ Artikel wird an dein Level angepasst, bitte warten... ⏳")
+
+        # Adapt the text to the user's level
+        adapted_text = adapt_text_to_level(article['text'], user_level)
+        if not adapted_text:
+            send_message(update, context, "Entschuldigung, es gab einen Fehler beim Anpassen des Artikels.")
+            return LEVEL
+
+        context.user_data['adapted_text'] = adapted_text
+
+        # Generate audio
+        selected_voice = random.choice(female_voices + male_voices)  # Choose a voice
+        audio_file = generate_audio(adapted_text, selected_voice)
+        if not audio_file:
+            send_message(update, context, "Entschuldigung, es gab einen Fehler bei der Audio-Generierung.")
+            return LEVEL
+
+        # Send the audio
+        try:
+            with open(audio_file, 'rb') as audio:
+                context.bot.send_audio(chat_id=update.effective_chat.id, audio=audio, caption="🎧 Hier ist dein Artikel!")
+            logger.info("Audio sent to user.")
+        except Exception as e:
+            logger.error(f"Failed to send audio: {e}")
+            send_message(update, context, "Entschuldigung, es gab einen Fehler beim Senden der Audio.")
+            return LEVEL
+        finally:
+            os.remove(audio_file)  # Clean up audio file
+
+        # Provide options to the user
+        keyboard = [
+            [InlineKeyboardButton("❓ Fragen erhalten", callback_data='get_questions')],
+            [InlineKeyboardButton("📄 Text anzeigen", callback_data='show_text')],
+            [InlineKeyboardButton("📚 Vokabeln anzeigen", callback_data='check_vocabulary')],
+            [InlineKeyboardButton("🔄 Anderen Artikel wählen", callback_data='news')],
+            [InlineKeyboardButton("🔄 Reset", callback_data='reset')]
         ]
-
-        logger.info(f"Running FFmpeg command: {' '.join(ffmpeg_command)}")
-
-        # Step 5: Execute the FFmpeg command
-        process = subprocess.Popen(
-            ffmpeg_command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        stdout_data, stderr_data = process.communicate()
-
-        # Optional: Log FFmpeg's stdout and stderr for debugging
-        logger.debug(f"FFmpeg stdout: {stdout_data.decode()}")
-        logger.debug(f"FFmpeg stderr: {stderr_data.decode()}")
-
-        # Check for FFmpeg errors
-        if process.returncode != 0:
-            logger.error(f"FFmpeg failed: {stderr_data.decode()}")
-            update.message.reply_text("Entschuldigung, es gab einen Fehler bei der Video-Generierung.")
-            os.remove(audio_file)  # Clean up audio file
-            os.remove(output_video_path)  # Clean up video file
-            return LEVEL
-
-        # Step 6: Verify the output video has an audio stream
-        probe_output = subprocess.run(
-            [
-                'ffprobe',
-                '-v', 'error',
-                '-show_entries', 'stream=codec_type',
-                '-of', 'default=noprint_wrappers=1:nokey=1',
-                output_video_path
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        streams = probe_output.stdout.decode().strip().split('\n')
-        if 'audio' not in streams:
-            logger.error("FFmpeg did not embed audio into the video.")
-            update.message.reply_text("Entschuldigung, es gab einen Fehler beim Einbetten der Audio in das Video.")
-            os.remove(audio_file)  # Clean up audio file
-            os.remove(output_video_path)  # Clean up video file
-            return LEVEL
-
-        video_size = os.path.getsize(output_video_path)
-        logger.info(f"Video created successfully with size {video_size} bytes.")
-
-    except subprocess.CalledProcessError as e:
-        logger.error(f"FFmpeg failed: {e}")
-        update.message.reply_text("Entschuldigung, es gab einen Fehler bei der Video-Generierung.")
-        os.remove(audio_file)  # Clean up audio file
-        os.remove(output_video_path)  # Clean up video file
-        return LEVEL
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        send_message(update, context, "Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
+        return ARTICLE_SENT
     except Exception as e:
-        logger.error(f"An unexpected error occurred during video processing: {e}")
-        update.message.reply_text("Entschuldigung, es gab einen unerwarteten Fehler bei der Video-Generierung.")
-        os.remove(audio_file)  # Clean up audio file
-        os.remove(output_video_path)  # Clean up video file
+        logger.error(f"Error in adapt_and_send_news_article: {e}")
+        send_message(update, context, "Entschuldigung, es gab einen Fehler beim Verarbeiten des Artikels.")
         return LEVEL
-
-    # Step 7: Send the video as a regular video message
-    try:
-        with open(output_video_path, 'rb') as video_file:
-            update.message.reply_video(
-                video=video_file,
-                caption="🎥 Hier ist deine Geschichte!",
-                supports_streaming=True
-            )
-        logger.info("Video sent to user.")
-    except Exception as e:
-        logger.error(f"Failed to send video: {e}")
-        update.message.reply_text("Entschuldigung, es gab einen Fehler beim Senden des Videos.")
-        return LEVEL
-    finally:
-        os.remove(output_video_path)  # Clean up video file
-
-    # Step 8: Send the options keyboard
-    keyboard = [
-        [InlineKeyboardButton("❓ Fragen erhalten", callback_data='get_questions')],
-        [InlineKeyboardButton("📄 Text anzeigen", callback_data='show_text')],
-        [InlineKeyboardButton("📚 Vokabeln anzeigen", callback_data='check_vocabulary')],
-        [InlineKeyboardButton("🔄 Thema wechseln", callback_data='change_topic')],
-        [InlineKeyboardButton("🌐 Level ändern", callback_data='change_level')],
-        [InlineKeyboardButton("🔄 Reset", callback_data='reset')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text("Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
-    return STORY_SENT
 
 def generate_audio(text: str, voice: str) -> str:
     logger.info(f"Generating audio with voice: {voice}")
 
-    url = "https://api.openai.com/v1/audio/speech"  # Replace with your actual TTS API endpoint
+    url = "https://api.openai.com/v1/audio/speech"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {openai_api_key}"
     }
     data = {
-        "model": "tts-1",  # Replace with your actual TTS model if different
+        "model": "tts-1",
         "input": text,
         "voice": voice
     }
 
     try:
         logger.info("Sending request to TTS API for audio.")
-        request = urllib.request.Request(
-            url, data=json.dumps(data).encode('utf-8'), headers=headers
-        )
-        response = urllib.request.urlopen(request)
-        audio_content = response.read()
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        audio_content = response.content
 
         # Write to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.ogg') as temp_audio:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_audio:
             temp_audio.write(audio_content)
             temp_audio_path = temp_audio.name
         logger.info("Audio file generated and saved.")
         return temp_audio_path
-    except urllib.error.HTTPError as e:
-        error_response = e.read().decode()
-        error_message = json.loads(error_response).get('error', {}).get('message', 'Unknown error')
-        logger.error(f"Error generating audio: {e.code} - {error_message}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error generating audio: {e}")
         return None
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return None
 
-def send_questions(query, context) -> int:
-    story = context.user_data.get('story')
-    if not story:
-        query.edit_message_text("Es gibt keine Geschichte, um Fragen zu generieren.")
-        return STORY_SENT
+def send_questions(update, context) -> int:
+    adapted_text = context.user_data.get('adapted_text')
+    if not adapted_text:
+        send_message(update, context, "Es gibt keinen Artikel, um Fragen zu generieren.")
+        return ARTICLE_SENT
 
-    logger.info("Generating questions based on the story.")
-    query.edit_message_text("✨ Fragen werden generiert, bitte warten... ⏳")
-    questions = generate_questions(story)
+    logger.info("Generating questions based on the adapted text.")
+    send_message(update, context, "✨ Fragen werden generiert, bitte warten... ⏳")
+    questions = generate_questions(adapted_text)
     if questions:
         context.user_data['questions'] = questions
         context.user_data['user_answers'] = []  # Reset any previous answers
-        query.message.reply_text("Hier sind einige Fragen zur Geschichte: ❓\n" + questions)
-        query.message.reply_text("Bitte sende deine Antworten einzeln. 💬")
+        send_message(update, context, "Hier sind einige Fragen zum Artikel: ❓\n" + questions)
+        send_message(update, context, "Bitte sende deine Antworten einzeln. 💬")
         # Provide options to the user
         keyboard = [
             [InlineKeyboardButton("✅ Antworten überprüfen", callback_data='check_answers')],
             [InlineKeyboardButton("📄 Text anzeigen", callback_data='show_text')],
             [InlineKeyboardButton("📚 Vokabeln anzeigen", callback_data='check_vocabulary')],
-            [InlineKeyboardButton("🔄 Thema wechseln", callback_data='change_topic')],
+            [InlineKeyboardButton("🔄 Anderen Artikel wählen", callback_data='news')],
             [InlineKeyboardButton("🔄 Reset", callback_data='reset')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        query.message.reply_text("Du kannst jederzeit Optionen wählen:", reply_markup=reply_markup)
+        send_message(update, context, "Du kannst jederzeit Optionen wählen:", reply_markup=reply_markup)
         return ANSWERING_QUESTIONS
     else:
         logger.error("Failed to generate questions.")
-        query.message.reply_text("Entschuldigung, es gab einen Fehler beim Generieren der Fragen.")
-
+        send_message(update, context, "Entschuldigung, es gab einen Fehler beim Generieren der Fragen.")
         # Provide options again
         keyboard = [
-            [InlineKeyboardButton("📝 Start", callback_data='start')],
-            [InlineKeyboardButton("📖 Tägliche Geschichte abonnieren", callback_data='subscribe_daily')],
+            [InlineKeyboardButton("📰 Nachrichten", callback_data='news')],
             [InlineKeyboardButton("📚 Vokabeln überprüfen", callback_data='review_vocabulary')],
             [InlineKeyboardButton("🔄 Reset", callback_data='reset')],
             [InlineKeyboardButton("🌐 Level ändern", callback_data='change_level')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        query.message.reply_text("Bitte wähle eine Option:", reply_markup=reply_markup)
+        send_message(update, context, "Bitte wähle eine Option:", reply_markup=reply_markup)
         return LEVEL
 
-def send_text(query, context) -> int:
-    story = context.user_data.get('story')
-    if not story:
-        query.edit_message_text("Es gibt keinen Text zum Anzeigen.")
-        return STORY_SENT
-    logger.info("Sending story text to user.")
-    query.message.reply_text("Hier ist der Text der Geschichte: 📄\n" + story)
+def send_text(update, context) -> int:
+    adapted_text = context.user_data.get('adapted_text')
+    if not adapted_text:
+        send_message(update, context, "Es gibt keinen Text zum Anzeigen.")
+        return ARTICLE_SENT
+    logger.info("Sending adapted text to user.")
+    send_message(update, context, "Hier ist der Text des Artikels: 📄\n" + adapted_text)
     # Provide options again
     keyboard = [
         [InlineKeyboardButton("❓ Fragen erhalten", callback_data='get_questions')],
         [InlineKeyboardButton("📚 Vokabeln anzeigen", callback_data='check_vocabulary')],
-        [InlineKeyboardButton("🔄 Thema wechseln", callback_data='change_topic')],
-        [InlineKeyboardButton("🌐 Level ändern", callback_data='change_level')],
+        [InlineKeyboardButton("🔄 Anderen Artikel wählen", callback_data='news')],
         [InlineKeyboardButton("🔄 Reset", callback_data='reset')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    query.message.reply_text("Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
-    return STORY_SENT
+    send_message(update, context, "Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
+    return ARTICLE_SENT
 
-def send_vocabulary(query, context) -> int:
-    story = context.user_data.get('story')
-    if not story:
-        query.edit_message_text("Es gibt keinen Text, um Vokabeln zu extrahieren.")
-        return STORY_SENT
+def send_vocabulary(update, context) -> int:
+    adapted_text = context.user_data.get('adapted_text')
+    if not adapted_text:
+        send_message(update, context, "Es gibt keinen Text, um Vokabeln zu extrahieren.")
+        return ARTICLE_SENT
 
-    logger.info("Extracting vocabulary from the story.")
-    query.edit_message_text("🔍 Vokabeln werden extrahiert, bitte warten... ⏳")
-    vocabulary = generate_vocabulary(story)
+    logger.info("Extracting vocabulary from the adapted text.")
+    send_message(update, context, "🔍 Vokabeln werden extrahiert, bitte warten... ⏳")
+    vocabulary = generate_vocabulary(adapted_text)
     if vocabulary:
-        query.message.reply_text("Hier sind einige Vokabeln aus der Geschichte: 📚\n" + vocabulary)
+        send_message(update, context, "Hier sind einige Vokabeln aus dem Artikel: 📚\n" + vocabulary)
 
         # Store vocabulary for tracking
-        user_id = query.from_user.id
+        user_id = update.effective_user.id
         user_vocab = context.bot_data.setdefault('user_vocab', {})
         user_vocab.setdefault(user_id, []).extend(vocabulary.split('\n'))
         logger.info(f"Vocabulary stored for user {user_id}.")
 
     else:
         logger.error("Failed to generate vocabulary.")
-        query.message.reply_text("Entschuldigung, es gab einen Fehler beim Extrahieren der Vokabeln.")
+        send_message(update, context, "Entschuldigung, es gab einen Fehler beim Extrahieren der Vokabeln.")
     # Provide options again
     keyboard = [
         [InlineKeyboardButton("❓ Fragen erhalten", callback_data='get_questions')],
         [InlineKeyboardButton("📄 Text anzeigen", callback_data='show_text')],
-        [InlineKeyboardButton("🔄 Thema wechseln", callback_data='change_topic')],
+        [InlineKeyboardButton("🔄 Anderen Artikel wählen", callback_data='news')],
         [InlineKeyboardButton("🔄 Reset", callback_data='reset')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    query.message.reply_text("Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
-    return STORY_SENT
+    send_message(update, context, "Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
+    return ARTICLE_SENT
 
-def review_vocabulary(query, context) -> int:
-    user_id = query.from_user.id
+def review_vocabulary(update, context) -> int:
+    user_id = update.effective_user.id
     user_vocab = context.bot_data.get('user_vocab', {}).get(user_id, [])
     if user_vocab:
         unique_vocab = list(set(user_vocab))
         vocab_text = "\n".join(unique_vocab)
-        query.message.reply_text("Hier ist deine gesammelte Vokabelliste: 📚\n" + vocab_text)
+        send_message(update, context, "Hier ist deine gesammelte Vokabelliste: 📚\n" + vocab_text)
     else:
-        query.message.reply_text("Du hast noch keine Vokabeln gesammelt.")
+        send_message(update, context, "Du hast noch keine Vokabeln gesammelt.")
     # Provide options again
     keyboard = [
-        [InlineKeyboardButton("📝 Start", callback_data='start')],
-        [InlineKeyboardButton("📖 Tägliche Geschichte abbestellen", callback_data='unsubscribe_daily')],
+        [InlineKeyboardButton("📰 Nachrichten", callback_data='news')],
         [InlineKeyboardButton("🔄 Reset", callback_data='reset')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    query.message.reply_text("Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
+    send_message(update, context, "Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
     return LEVEL
 
 def receive_answer(update: Update, context: CallbackContext) -> int:
     user_answer = update.message.text
     context.user_data.setdefault('user_answers', []).append(user_answer)
     logger.info(f"User provided answer: {user_answer}")
-    update.message.reply_text("Antwort erhalten. 😊")
+    send_message(update, context, "Antwort erhalten. 😊")
     # Provide options to check answers or continue
     keyboard = [
         [InlineKeyboardButton("✅ Antworten überprüfen", callback_data='check_answers')],
         [InlineKeyboardButton("📄 Text anzeigen", callback_data='show_text')],
-        [InlineKeyboardButton("🔄 Thema wechseln", callback_data='change_topic')],
+        [InlineKeyboardButton("🔄 Anderen Artikel wählen", callback_data='news')],
         [InlineKeyboardButton("🔄 Reset", callback_data='reset')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text("Du kannst weitere Antworten senden oder Optionen wählen:", reply_markup=reply_markup)
+    send_message(update, context, "Du kannst weitere Antworten senden oder Optionen wählen:", reply_markup=reply_markup)
     return ANSWERING_QUESTIONS
 
-def check_answers(query, context) -> int:
-    story = context.user_data.get('story')
+def check_answers(update, context) -> int:
+    adapted_text = context.user_data.get('adapted_text')
     questions = context.user_data.get('questions')
     user_answers = context.user_data.get('user_answers', [])
 
-    if not story or not questions or not user_answers:
-        query.edit_message_text("Es gibt keine Antworten zum Überprüfen.")
-        return STORY_SENT
+    if not adapted_text or not questions or not user_answers:
+        send_message(update, context, "Es gibt keine Antworten zum Überprüfen.")
+        return ARTICLE_SENT
 
     logger.info("Checking user's answers.")
-    query.edit_message_text("🔎 Antworten werden überprüft, bitte warten... ⏳")
-    feedback = generate_feedback(story, questions, user_answers)
+    send_message(update, context, "🔎 Antworten werden überprüft, bitte warten... ⏳")
+    feedback = generate_feedback(adapted_text, questions, user_answers)
     if feedback:
-        query.message.reply_text("Hier ist das Feedback zu deinen Antworten: ✅\n" + feedback)
+        send_message(update, context, "Hier ist das Feedback zu deinen Antworten: ✅\n" + feedback)
     else:
         logger.error("Failed to generate feedback.")
-        query.message.reply_text("Entschuldigung, es gab einen Fehler beim Überprüfen der Antworten.")
+        send_message(update, context, "Entschuldigung, es gab einen Fehler beim Überprüfen der Antworten.")
     # Provide options again
     keyboard = [
         [InlineKeyboardButton("❓ Fragen erhalten", callback_data='get_questions')],
         [InlineKeyboardButton("📄 Text anzeigen", callback_data='show_text')],
         [InlineKeyboardButton("📚 Vokabeln anzeigen", callback_data='check_vocabulary')],
-        [InlineKeyboardButton("🔄 Thema wechseln", callback_data='change_topic')],
-        [InlineKeyboardButton("🌐 Level ändern", callback_data='change_level')],
+        [InlineKeyboardButton("🔄 Anderen Artikel wählen", callback_data='news')],
         [InlineKeyboardButton("🔄 Reset", callback_data='reset')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    query.message.reply_text("Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
-    return STORY_SENT
+    send_message(update, context, "Was möchtest du als Nächstes tun?", reply_markup=reply_markup)
+    return ARTICLE_SENT
 
-def generate_feedback(story: str, questions: str, user_answers: list) -> str:
+def generate_feedback(text: str, questions: str, user_answers: list) -> str:
     url = "https://api.openai.com/v1/chat/completions"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {openai_api_key}"
     }
     prompt = (
-        f"Hier ist eine Geschichte:\n\n{story}\n\n"
+        f"Hier ist ein Text:\n\n{text}\n\n"
         f"Hier sind die Fragen:\n{questions}\n\n"
         f"Hier sind die Antworten des Lerners:\n" + "\n".join(user_answers) +
         "\n\nBitte überprüfe die Antworten und gib Feedback auf Deutsch:"
@@ -568,31 +445,24 @@ def generate_feedback(story: str, questions: str, user_answers: list) -> str:
 
     try:
         logger.info("Sending request to OpenAI API for feedback.")
-        request = urllib.request.Request(
-            url, data=json.dumps(data).encode('utf-8'), headers=headers
-        )
-        response = urllib.request.urlopen(request)
-        response_data = json.loads(response.read())
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        response_data = response.json()
         feedback = response_data['choices'][0]['message']['content'].strip()
         logger.info("Feedback received from OpenAI API.")
         return feedback
-    except urllib.error.HTTPError as e:
-        error_response = e.read().decode()
-        error_message = json.loads(error_response).get('error', {}).get('message', 'Unknown error')
-        logger.error(f"Error generating feedback: {e.code} - {error_message}")
-        return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error generating feedback: {e}")
         return None
 
-def generate_vocabulary(story: str) -> str:
+def generate_vocabulary(text: str) -> str:
     url = "https://api.openai.com/v1/chat/completions"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {openai_api_key}"
     }
     prompt = (
-        f"Extrahiere die wichtigsten Vokabeln aus dem folgenden Text und gib eine Liste mit Übersetzungen ins Englische:\n\n{story}\n\n"
+        f"Extrahiere die wichtigsten Vokabeln aus dem folgenden Text und gib eine Liste mit Übersetzungen ins Englische:\n\n{text}\n\n"
         "Vokabelliste (immer nutzen DER DIE DAS):"
     )
     data = {
@@ -605,30 +475,23 @@ def generate_vocabulary(story: str) -> str:
 
     try:
         logger.info("Sending request to OpenAI API for vocabulary.")
-        request = urllib.request.Request(
-            url, data=json.dumps(data).encode('utf-8'), headers=headers
-        )
-        response = urllib.request.urlopen(request)
-        response_data = json.loads(response.read())
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        response_data = response.json()
         vocabulary = response_data['choices'][0]['message']['content'].strip()
         logger.info("Vocabulary received from OpenAI API.")
         return vocabulary
-    except urllib.error.HTTPError as e:
-        error_response = e.read().decode()
-        error_message = json.loads(error_response).get('error', {}).get('message', 'Unknown error')
-        logger.error(f"Error generating vocabulary: {e.code} - {error_message}")
-        return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error generating vocabulary: {e}")
         return None
 
-def generate_questions(story: str) -> str:
+def generate_questions(text: str) -> str:
     url = "https://api.openai.com/v1/chat/completions"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {openai_api_key}"
     }
-    prompt = f"Lies den folgenden Text und erstelle drei Verständnisfragen dazu:\n\n{story}\n\nFragen:"
+    prompt = f"Lies den folgenden Text und erstelle drei Verständnisfragen dazu:\n\n{text}\n\nFragen:"
     data = {
         "model": "gpt-4o-mini",
         "messages": [
@@ -639,144 +502,249 @@ def generate_questions(story: str) -> str:
 
     try:
         logger.info("Sending request to OpenAI API for questions.")
-        request = urllib.request.Request(
-            url, data=json.dumps(data).encode('utf-8'), headers=headers
-        )
-        response = urllib.request.urlopen(request)
-        response_data = json.loads(response.read())
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        response_data = response.json()
         questions = response_data['choices'][0]['message']['content'].strip()
         logger.info("Questions received from OpenAI API.")
         return questions
-    except urllib.error.HTTPError as e:
-        error_response = e.read().decode()
-        error_message = json.loads(error_response).get('error', {}).get('message', 'Unknown error')
-        logger.error(f"Error generating questions: {e.code} - {error_message}")
-        return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error generating questions: {e}")
         return None
 
-def generate_story(topic: str, level: str) -> str:
+def adapt_text_to_level(text, level):
+    """
+    Uses OpenAI to adapt the text to the user's German level (A1, A2, B1, etc.).
+    """
     url = "https://api.openai.com/v1/chat/completions"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {openai_api_key}"
     }
+
+    # Prompt to adapt the text
     prompt = (
-        f"Erstelle eine interessante Geschichte auf Deutsch über '{topic}', "
-        f"die für Deutschlerner auf Niveau {level} geeignet ist. "
-        f"Die Geschichte sollte MAXIMUM 60 sekunden beim Vorlesen dauern und so gestaltet sein, dass man anschließend einfache Fragen dazu stellen kann. "
-        f"Verwende nützliches Vokabular, das für eine nachfolgende Übung hilfreich ist, und baue dabei alltägliche Themen ein, die das Sprachverständnis fördern."
+        f"Bitte passe diesen Text an das Niveau {level} an:\n\n"
+        f"{text}\n\n"
+        "Verwende vereinfachte Sätze und reduziere den Wortschatz, wenn nötig."
     )
+
     data = {
         "model": "gpt-4o-mini",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
+        "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7
     }
 
     try:
-        logger.info("Sending request to OpenAI API for story.")
-        request = urllib.request.Request(url, data=json.dumps(data).encode('utf-8'), headers=headers)
-        response = urllib.request.urlopen(request)
-        response_data = json.loads(response.read())
-        story = response_data['choices'][0]['message']['content'].strip()
-        logger.info("Story received from OpenAI API.")
-        return story
-    except urllib.error.HTTPError as e:
-        error_response = e.read().decode()
-        error_message = json.loads(error_response).get('error', {}).get('message', 'Unknown error')
-        logger.error(f"Error generating story: {e.code} - {error_message}")
-        return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
+        logger.info(f"Sending request to OpenAI API to adapt text to level {level}.")
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        result = response.json()
+        adapted_text = result['choices'][0]['message']['content']
+        logger.info("Text adapted successfully.")
+        return adapted_text.strip()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error adapting text to level {level}: {e}")
         return None
 
-def generate_audio(text: str, voice: str) -> str:
-    logger.info(f"Generating audio with voice: {voice}")
+def generate_short_title(title: str, max_length: int = 30) -> str:
+    """
+    Generates a concise summary title suitable for button display.
+    """
+    if len(title) <= max_length:
+        return title  # Title is already short enough
 
-    url = "https://api.openai.com/v1/audio/speech"  # Replace with your actual TTS API endpoint
+    url = "https://api.openai.com/v1/chat/completions"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {openai_api_key}"
     }
+
+    prompt = (
+        f"Verkürze den folgenden Titel auf maximal {max_length} Zeichen, sodass er die Hauptidee enthält und für eine Liste geeignet ist:\n\n"
+        f"Titel: {title}\n\n"
+        "Kurzer Titel:"
+    )
+
     data = {
-        "model": "tts-1",  # Replace with your actual TTS model if different
-        "input": text,
-        "voice": voice
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.5,
+        "max_tokens": 20,
+        "n": 1,
+        "stop": None
     }
 
     try:
-        logger.info("Sending request to TTS API for audio.")
-        request = urllib.request.Request(
-            url, data=json.dumps(data).encode('utf-8'), headers=headers
-        )
-        response = urllib.request.urlopen(request)
-        audio_content = response.read()
+        logger.info(f"Generating short title for: {title}")
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        result = response.json()
+        short_title = result['choices'][0]['message']['content'].strip()
+        logger.info(f"Short title generated: {short_title}")
+        return short_title
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error generating short title: {e}")
+        # Fallback to truncating the title
+        return title[:max_length] + "..."
+import re
 
-        # Write to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.ogg') as temp_audio:
-            temp_audio.write(audio_content)
-            temp_audio_path = temp_audio.name
-        logger.info("Audio file generated and saved.")
-        return temp_audio_path
-    except urllib.error.HTTPError as e:
-        error_response = e.read().decode()
-        error_message = json.loads(error_response).get('error', {}).get('message', 'Unknown error')
-        logger.error(f"Error generating audio: {e.code} - {error_message}")
+def fetch_general_news():
+    """
+    Fetch the general news from the main DW Germany news section.
+    Extracts article URLs and returns them for detailed fetching.
+    """
+    url = "https://www.dw.com/de/themen/s-9077"
+    logger.info(f"Fetching general news from {url}")
+
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an error for bad responses
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error fetching the main news page: {e}")
+        return []
+
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    # Use a set to store unique article URLs
+    article_urls = set()
+
+    # Define a regex pattern for article URLs
+    article_url_pattern = re.compile(r'^/de/[\w\-/]+/a-\d+$')
+
+    for link in soup.find_all('a', href=True):
+        href = link['href']
+        if article_url_pattern.match(href):
+            # Ensure the URL is correctly concatenated
+            if href.startswith('http'):
+                full_url = href
+            else:
+                full_url = "https://www.dw.com" + href
+            article_urls.add(full_url)
+            logger.info(f"Found article URL: {full_url}")
+
+    article_urls = list(article_urls)
+    logger.info(f"Total {len(article_urls)} unique articles found.")
+    return article_urls
+def extract_article_json(script_content):
+    """
+    Extract the JSON data from the script tag containing window.__APP_STATE__.
+    """
+    start_index = script_content.find('window.__APP_STATE__ = ') + len('window.__APP_STATE__ = ')
+    json_data = script_content[start_index:].strip().rstrip(';')
+
+    try:
+        article_json = json.loads(json_data)
+        logger.info("Successfully extracted JSON data from window.__APP_STATE__")
+        return article_json
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding JSON: {e}")
         return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
+
+def fetch_article_details(article_url):
+    """
+    Fetch the details for a specific article URL by extracting the JSON-like content from window.__APP_STATE__.
+    """
+    logger.info(f"Fetching article details for {article_url}")
+
+    try:
+        response = requests.get(article_url)
+        response.raise_for_status()  # Raise an error for bad responses
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error fetching the article details: {e}")
         return None
+
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    # Extracting the JSON embedded in the script tag (window.__APP_STATE__)
+    scripts = soup.find_all('script')
+    for script in scripts:
+        if 'window.__APP_STATE__' in script.text:
+            app_state_json = extract_article_json(script.text)
+            if app_state_json:
+                article_key = next((key for key in app_state_json if key.startswith("/graph-api/de/content/article")), None)
+                if article_key and article_key in app_state_json:
+                    article_data = app_state_json[article_key]["data"]["content"]
+
+                    # Check if necessary fields are present
+                    if not article_data.get("title") or not article_data.get("text"):
+                        logger.warning(f"Article missing title or text: {article_url}")
+                        return None
+
+                    article_details = {
+                        "title": article_data.get("title", ""),
+                        "teaser": article_data.get("teaser", ""),
+                        "published_date": article_data.get("localizedContentDate", ""),
+                        "text": BeautifulSoup(article_data.get("text", ""), "html.parser").text,
+                        "url": article_data.get("canonicalUrl", article_url)
+                    }
+                    return article_details
+            else:
+                logger.error(f"Could not find valid article data in {article_url}")
+
+    logger.error(f"Could not extract article details from {article_url}")
+    return None
+
+def extract_and_fetch_news():
+    """
+    Fetches the list of news articles without adapting the text yet.
+    """
+    logger.info("Starting the extraction and fetching of news articles.")
+    news_articles = []
+
+    # Step 1: Fetch the general news URLs
+    article_urls = fetch_general_news()
+
+    # Use a set to track article URLs that have been processed
+    processed_urls = set()
+
+    # Step 2: For each article URL, fetch its details and add to the list
+    for article_url in article_urls:
+        if article_url not in processed_urls:
+            details = fetch_article_details(article_url)
+            if details:
+                # Generate short title
+                short_title = generate_short_title(details['title'])
+                details['short_title'] = short_title
+                news_articles.append(details)
+                processed_urls.add(article_url)
+        else:
+            logger.info(f"Duplicate article URL found and skipped: {article_url}")
+
+    logger.info(f"Total {len(news_articles)} unique articles successfully fetched.")
+    return news_articles
 
 def cancel(update: Update, context: CallbackContext) -> int:
     logger.info("User cancelled the conversation.")
-    update.message.reply_text('Auf Wiedersehen! 👋')
+    send_message(update, context, 'Auf Wiedersehen! 👋')
     return ConversationHandler.END
 
-def level_received(update: Update, context: CallbackContext) -> int:
-    user_level = update.message.text.upper()
-    if user_level not in ['A1', 'A2', 'B1']:
-        update.message.reply_text(
-            "Bitte gib ein gültiges Niveau ein (A1, A2, B1):"
-        )
-        return LEVEL
-    context.user_data['level'] = user_level
-    # Store user's level in bot_data for daily stories
-    user_id = update.effective_user.id
-    context.bot_data.setdefault('user_levels', {})[user_id] = user_level
-    logger.info(f"User provided level: {user_level}")
-    return ask_topic(update, context)
+def update_news_articles(context: CallbackContext):
+    logger.info("Updating news articles.")
 
-def send_daily_story(context: CallbackContext):
-    job = context.job
-    subscribers = context.bot_data.get('subscribers', set())
-    logger.info(f"Sending daily story to subscribers: {subscribers}")
+    # Check if the news articles JSON file exists and is up-to-date (e.g., not older than 1 hour)
+    if NEWS_JSON_PATH.exists():
+        file_mod_time = datetime.datetime.fromtimestamp(NEWS_JSON_PATH.stat().st_mtime)
+        if datetime.datetime.now() - file_mod_time < datetime.timedelta(hours=1):
+            # Load articles from the JSON file
+            logger.info("Loading news articles from cache.")
+            with open(NEWS_JSON_PATH, 'r', encoding='utf-8') as f:
+                news_articles = json.load(f)
+            context.bot_data['news_articles'] = news_articles
+            logger.info("News articles loaded from disk.")
+            return
 
-    for user_id in subscribers:
-        try:
-            user_level = context.bot_data.get('user_levels', {}).get(user_id, 'A1')  # Default to 'A1'
-            topic = random.choice(expat_topics)
-            bot = context.bot
+    # If the JSON file doesn't exist or is outdated, fetch new articles
+    logger.info("Fetching new news articles from the website.")
+    news_articles = extract_and_fetch_news()
 
-            # Send a message to the user
-            chat_id = user_id
-            bot.send_message(chat_id, "Guten Morgen! Hier ist deine tägliche Geschichte. 📖")
+    # Save the articles to disk
+    with open(NEWS_JSON_PATH, 'w', encoding='utf-8') as f:
+        json.dump(news_articles, f, ensure_ascii=False, indent=4)
+    logger.info(f"News articles saved to {NEWS_JSON_PATH}.")
 
-            # Generate and send the story
-            # Create a dummy Update and CallbackContext for the function
-            # Note: This is a workaround since we don't have an actual Update object
-            update = Update(update_id=0, message=bot.send_message(chat_id, ""))
-            update.effective_user = bot.get_chat(chat_id)
-            new_context = CallbackContext.from_update(update, bot)
-            new_context.user_data = {}
-            new_context.bot_data = context.bot_data
-
-            # Generate and send the story
-            generate_and_send_story(update, new_context, topic, user_level)
-        except Exception as e:
-            logger.error(f"Failed to send daily story to user {user_id}: {e}")
+    context.bot_data['news_articles'] = news_articles
+    logger.info("News articles updated in bot data.")
 
 def main():
     # Fetch tokens securely from environment variables
@@ -803,11 +771,12 @@ def main():
                 CallbackQueryHandler(button_handler),
                 MessageHandler(Filters.text & ~Filters.command, level_received)
             ],
-            TOPIC: [
-                MessageHandler(Filters.text & ~Filters.command, receive_topic),
-                CallbackQueryHandler(button_handler)
+            SELECTING_ARTICLE: [
+                MessageHandler(Filters.regex(r'^\d+$'), select_article),
+                CallbackQueryHandler(button_handler),
+                MessageHandler(Filters.text & ~Filters.command, lambda u, c: send_message(u, c, "Bitte gib die Zahl des Artikels ein."))
             ],
-            STORY_SENT: [
+            ARTICLE_SENT: [
                 CallbackQueryHandler(button_handler),
                 MessageHandler(Filters.text & ~Filters.command, receive_answer)
             ],
@@ -815,7 +784,6 @@ def main():
                 MessageHandler(Filters.text & ~Filters.command, receive_answer),
                 CallbackQueryHandler(button_handler)
             ],
-            # Add any additional states if necessary
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
@@ -825,12 +793,12 @@ def main():
     # Use long polling
     logger.info("Starting bot using long polling.")
 
-    # Set up daily job for sending stories
-    job_queue = updater.job_queue
+    # Initialize news articles
+    update_news_articles(dispatcher)
 
-    # Schedule the daily story at 11:00 AM
-    target_time = datetime.time(hour=11, minute=0)
-    job_queue.run_daily(send_daily_story, time=target_time, context=dispatcher)
+    # Set up job for updating news articles every hour
+    job_queue = updater.job_queue
+    job_queue.run_repeating(update_news_articles, interval=3600*6, first=3600*6)
 
     updater.start_polling()
     updater.idle()
