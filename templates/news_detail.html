@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ article['title'] }}</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Google Fonts for Modern Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Global Styles */
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            padding-top: 80px;
+            padding-bottom: 60px;
+        }
+        .container {
+            max-width: 800px;
+        }
+        /* Header Styles */
+        .navbar {
+            background-color: #1DB954;
+        }
+        .navbar-brand {
+            font-weight: bold;
+            font-size: 1.5rem;
+        }
+        /* Article Card */
+        .article-card {
+            background-color: #1E1E1E;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            margin-bottom: 30px;
+        }
+        .article-card h1 {
+            color: #1DB954;
+        }
+        .article-card h2 {
+            color: #1DB954;
+        }
+        .article-card p {
+            color: #B3B3B3;
+        }
+        /* Controls Section */
+        .controls-section {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+            gap: 15px;
+        }
+        .controls-section .form-select {
+            width: 150px;
+        }
+        .audio-controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .audio-controls button {
+            background-color: #1DB954;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            color: #ffffff;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .audio-controls button:disabled {
+            background-color: #555555;
+            cursor: not-allowed;
+        }
+        .audio-controls button:hover:not(:disabled) {
+            background-color: #17A44D;
+        }
+        /* Logging Panel */
+        #log-panel {
+            position: fixed;
+            bottom: 100px;
+            right: 30px;
+            width: 300px;
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: rgba(0,0,0,0.85);
+            color: #ffffff;
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 1500;
+            display: none; /* Initially hidden */
+        }
+        #log-toggle {
+            position: fixed;
+            bottom: 320px;
+            right: 30px;
+            z-index: 1500;
+        }
+        #log-panel h5 {
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+            margin-bottom: 10px;
+        }
+        #log-messages {
+            font-size: 0.85rem;
+            max-height: 160px;
+            overflow-y: auto;
+        }
+        /* Audio Player */
+        #audio-player {
+            width: 100%;
+            margin-bottom: 20px;
+            background-color: #1E1E1E;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            display: none;
+        }
+        #audio-player audio {
+            width: 100%;
+            outline: none;
+        }
+        /* Toggle Switch */
+        .form-switch {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        /* Responsive Adjustments */
+        @media (max-width: 576px) {
+            .controls-section {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .controls-section .form-select {
+                width: 100%;
+            }
+            .audio-controls {
+                width: 100%;
+                justify-content: flex-start;
+            }
+            #log-panel {
+                right: 10px;
+                bottom: 80px;
+                width: 90%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Logging Panel Toggle Button -->
+    <div id="log-toggle">
+        <button class="btn btn-dark btn-sm" onclick="toggleLogPanel()">
+            <i class="fas fa-robot"></i> Show Logs
+        </button>
+    </div>
+
+    <!-- Logging Panel -->
+    <div id="log-panel">
+        <h5>Logs</h5>
+        <div id="log-messages"></div>
+    </div>
+
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">DeutschifyTelegram</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavDetail" aria-controls="navbarNavDetail" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <!-- Future navigation items can be added here -->
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="article-card">
+            <h1>{{ article['title'] }}</h1>
+            <p class="text-muted">{{ article['published_date'] }}</p>
+            <p><strong>{{ article['teaser'] }}</strong></p>
+
+            <!-- Controls Section: Level Selection and Toggle Switch -->
+            <div class="controls-section">
+                <!-- Level Selection -->
+                <div class="level-selection">
+                    <label for="level-select" class="form-label">Select Level:</label>
+                    <select id="level-select" class="form-select">
+                        <option value="">Original</option>
+                        <option value="A1">A1</option>
+                        <option value="A2">A2</option>
+                        <option value="B1">B1</option>
+                    </select>
+                </div>
+
+                <!-- Toggle Switch for Original Text -->
+                <div class="form-switch">
+                    <input class="form-check-input" type="checkbox" id="toggle-original-text" checked>
+                    <label class="form-check-label" for="toggle-original-text">Show Original Text</label>
+                </div>
+            </div>
+
+            <!-- Audio Player (Initially Hidden) -->
+            <div id="audio-player">
+                <audio controls>
+                    <!-- Set src dynamically via JavaScript -->
+                    Your browser does not support the audio element.
+                </audio>
+            </div>
+
+            <!-- Audio Controls -->
+            <div class="audio-controls">
+                <button id="play-button" class="btn" disabled>
+                    <i class="fas fa-play"></i> Play Audio
+                </button>
+            </div>
+
+            <!-- Adapted Text -->
+            <div class="article-content" id="adapted-text-section" style="display: none;">
+                <h2>Adapted Text (Level: <span id="adapted-level-display"></span>)</h2>
+                <div id="adapted-text"></div>
+            </div>
+
+            <!-- Original Text -->
+            <div class="article-content" id="original-text-section">
+                <h2>Original Text</h2>
+                {{ formatted_text | safe }}
+            </div>
+        </div>
+
+        <!-- Back Link -->
+        <div class="back-link mt-4">
+            <a href="{{ url_for('index') }}" class="btn btn-secondary">&larr; Back to Articles</a>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle with Popper.js -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Font Awesome JS for Icons -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <!-- Custom JavaScript -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Embed article_id as a JavaScript variable
+            const articleId = {{ article_id }};
+            const levelSelect = document.getElementById('level-select');
+            const adaptedTextContainer = document.getElementById('adapted-text-section');
+            const adaptedTextDiv = document.getElementById('adapted-text');
+            const adaptedLevelSpan = document.getElementById('adapted-level-display');
+            const toggleOriginalText = document.getElementById('toggle-original-text');
+            const originalTextSection = document.getElementById('original-text-section');
+            const playButton = document.getElementById('play-button');
+            const audioPlayer = document.getElementById('audio-player');
+            const audioElement = audioPlayer.querySelector('audio');
+            const logPanel = document.getElementById('log-panel');
+            const logMessages = document.getElementById('log-messages');
+
+            let currentLevel = '';
+            let currentAudioUrl = '';
+
+            // Function to append logs to the log panel
+            function appendLog(message) {
+                const timestamp = new Date().toLocaleTimeString();
+                const logEntry = document.createElement('div');
+                logEntry.textContent = `[${timestamp}] ${message}`;
+                logMessages.appendChild(logEntry);
+                // Auto-scroll to the bottom
+                logMessages.scrollTop = logMessages.scrollHeight;
+            }
+
+            // Function to toggle the log panel visibility
+            window.toggleLogPanel = function() {
+                if (logPanel.style.display === 'none' || logPanel.style.display === '') {
+                    logPanel.style.display = 'block';
+                    appendLog('Log panel opened.');
+                } else {
+                    logPanel.style.display = 'none';
+                    appendLog('Log panel closed.');
+                }
+            }
+
+            // Disable Play Button Initially
+            playButton.disabled = true;
+
+            // Handle Level Selection Change
+            levelSelect.addEventListener('change', function() {
+                const selectedLevel = levelSelect.value;
+                currentLevel = selectedLevel;
+                appendLog(`Level selected: ${selectedLevel}`);
+
+                if (selectedLevel) {
+                    // Hide Original Text
+                    originalTextSection.style.display = 'none';
+                    appendLog('Original text hidden.');
+
+                    // Show the adapted text section
+                    adaptedTextContainer.style.display = 'block';
+                    adaptedLevelSpan.textContent = selectedLevel;
+
+                    // Disable Play Button while processing and show spinner
+                    playButton.disabled = true;
+                    playButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                    appendLog('Play button disabled and set to processing state.');
+
+                    // Send POST request to adapt the text
+                    fetch(`/app/article/${articleId}/adapt`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ level: selectedLevel })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            adaptedTextDiv.innerHTML = data.adapted_text;
+                            appendLog('Adapted text received and displayed.');
+
+                            // Now, generate audio by sending adapted_text to /play endpoint
+                            appendLog('Sending adapted text to /play endpoint for audio generation.');
+
+                            fetch(`/app/play`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({ text: data.adapted_text })
+                            })
+                            .then(audioResponse => audioResponse.json())
+                            .then(audioData => {
+                                if (audioData.status === 'success') {
+                                    currentAudioUrl = audioData.audio_url;
+                                    appendLog(`Audio URL generated: ${currentAudioUrl}`);
+
+                                    // Update the audio player source
+                                    audioElement.src = currentAudioUrl;
+                                    audioPlayer.style.display = 'block';
+                                    appendLog('Audio player displayed with new source.');
+
+                                    // Enable Play Button
+                                    playButton.disabled = false;
+                                    playButton.innerHTML = '<i class="fas fa-play"></i> Play Audio';
+                                    appendLog('Play button enabled and set to play state.');
+                                } else {
+                                    appendLog('Error generating audio.');
+                                    alert('Error generating audio.');
+                                    // Re-enable Play Button with error state
+                                    playButton.disabled = false;
+                                    playButton.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+                                }
+                            })
+                            .catch(audioError => {
+                                appendLog('Error during audio generation.');
+                                console.error('Audio Generation Error:', audioError);
+                                alert('Error generating audio.');
+                                // Re-enable Play Button with error state
+                                playButton.disabled = false;
+                                playButton.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+                            });
+                        } else {
+                            appendLog('Error adapting text.');
+                            alert('Error adapting text.');
+                            // Hide adapted text section
+                            adaptedTextContainer.style.display = 'none';
+                            // Re-enable Play Button with error state
+                            playButton.disabled = false;
+                            playButton.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+                        }
+                    })
+                    .catch(error => {
+                        appendLog('Error adapting text.');
+                        console.error('Adaptation Error:', error);
+                        alert('Error adapting text.');
+                        // Hide adapted text section
+                        adaptedTextContainer.style.display = 'none';
+                        // Re-enable Play Button with error state
+                        playButton.disabled = false;
+                        playButton.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+                    });
+                } else {
+                    // If Original level is selected, show the original text
+                    originalTextSection.style.display = 'block';
+                    appendLog('Original text shown.');
+
+                    // Hide the adapted text section
+                    adaptedTextContainer.style.display = 'none';
+                    appendLog('Adapted text section hidden.');
+
+                    // Reset audio URL as there's no adaptation
+                    currentAudioUrl = '';
+                    audioElement.src = '';
+                    audioPlayer.style.display = 'none';
+                    appendLog('Audio player hidden.');
+
+                    // Disable Play Button
+                    playButton.disabled = true;
+                    playButton.innerHTML = '<i class="fas fa-play"></i> Play Audio';
+                }
+            });
+
+            // Handle Toggle Original Text
+            toggleOriginalText.addEventListener('change', function() {
+                if (toggleOriginalText.checked) {
+                    originalTextSection.style.display = 'block';
+                    appendLog('Original text shown.');
+                } else {
+                    originalTextSection.style.display = 'none';
+                    appendLog('Original text hidden.');
+                }
+            });
+
+            // Handle Play Button Click (Regular Button)
+            playButton.addEventListener('click', function() {
+                appendLog('Play button clicked.');
+
+                if (currentAudioUrl) {
+                    // Update the audio source (if needed)
+                    audioElement.src = currentAudioUrl;
+                    audioPlayer.style.display = 'block';
+                    appendLog(`Audio player displayed with source: ${currentAudioUrl}`);
+
+                    // Load and play the audio
+                    audioElement.load();
+                    audioElement.play().then(() => {
+                        appendLog('Audio playback started.');
+                    }).catch(error => {
+                        console.error('Audio playback error:', error);
+                        appendLog(`Audio playback error: ${error}`);
+                        alert('Error playing audio.');
+                    });
+                } else {
+                    appendLog('No audio URL available to play.');
+                    alert('No audio available for this article.');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

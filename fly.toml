@@ -4,13 +4,11 @@ primary_region = "fra"
 [env]
   PORT = "8080"
   FLY_APP_NAME = "deutschifytelegram"
-  OPENAI_API_KEY = "${OPENAI_API_KEY}"
-  TELEGRAM_BOT_TOKEN = "${TELEGRAM_BOT_TOKEN}"
+  # Removed OPENAI_API_KEY and TELEGRAM_BOT_TOKEN for security
 
 [[services]]
   internal_port = 8080
   protocol = "tcp"
-  # Removed the 'processes' field as Docker manages the startup command
 
   [[services.ports]]
     handlers = ["http"]
@@ -29,7 +27,7 @@ primary_region = "fra"
     interval = "15s"
     timeout = "2s"
     method = "GET"
-    path = "/"
+    path = "/app/"
     protocol = "http"
     grace_period = "5s"
     restart_limit = 0

@@ -4,11 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="fc364f98-776d-46ad-847a-196205009dc9" name="Changes" comment="news reworked">
+    <list default="true" id="fc364f98-776d-46ad-847a-196205009dc9" name="Changes" comment="news reworked 2.0">
+      <change afterPath="$PROJECT_DIR$/Procfile" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/templates/news.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/templates/news_detail.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/merkel.mov" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/news.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/news_detail.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/fly.toml" beforeDir="false" afterPath="$PROJECT_DIR$/fly.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -55,6 +57,7 @@
       <recent name="$PROJECT_DIR$" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/templates" />
       <recent name="$PROJECT_DIR$" />
     </key>
   </component>
@@ -149,21 +152,41 @@
       <option name="project" value="LOCAL" />
       <updated>1729457129684</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="news reworked 2.0">
+      <option name="closed" value="true" />
+      <created>1729457896973</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1729457896973</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="daily stories working 1.0" />
     <MESSAGE value="2.0 working" />
     <MESSAGE value="news reworked" />
-    <option name="LAST_COMMIT_MESSAGE" value="news reworked" />
+    <MESSAGE value="news reworked 2.0" />
+    <option name="LAST_COMMIT_MESSAGE" value="news reworked 2.0" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
       <breakpoints>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/main.py</url>
-          <line>806</line>
+          <line>1013</line>
           <option name="timeStamp" value="1" />
         </line-breakpoint>
       </breakpoints>

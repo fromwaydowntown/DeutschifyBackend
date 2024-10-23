@@ -5,8 +5,10 @@ import json
 import datetime
 import tempfile
 import requests
-from io import BytesIO
 from bs4 import BeautifulSoup
+from starlette.responses import JSONResponse
+from starlette.staticfiles import StaticFiles
+from starlette.templating import Jinja2Templates
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Updater,
@@ -18,19 +20,38 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 from pathlib import Path
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
+import os
+import threading
+import json
+import shutil
+
+
+# Fetch tokens securely from environment variables
+openai_api_key = os.environ.get('OPENAI_API_KEY')
+telegram_bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+
+
+# Initialize FastAPI app
+app = FastAPI()
+updater = Updater(telegram_bot_token, use_context=True)
+dispatcher = updater.dispatcher
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Initialize Jinja2 templates
+templates = Jinja2Templates(directory="templates")
 
 # Enable logging
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG
 )
 logger = logging.getLogger(__name__)
 
 # Define conversation states
 LEVEL, SELECTING_ARTICLE, ARTICLE_SENT, ANSWERING_QUESTIONS = range(4)
-
-# Fetch tokens securely from environment variables
-openai_api_key = os.environ.get('OPENAI_API_KEY')
-telegram_bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
 
 # Define voice lists based on gender (replace with actual voices if needed)
 male_voices = ['alloy', 'onyx']
@@ -39,6 +60,152 @@ female_voices = ['echo', 'fable', 'nova', 'shimmer']
 # Path to the JSON file where news articles will be saved
 NEWS_JSON_PATH = Path("news_articles.json")
 
+
+# Threading lock for thread safety
+news_lock = threading.Lock()
+
+# Prefix for web app routes
+WEB_APP_PREFIX = '/app'
+
+# FastAPI Routes
+@app.get("/", response_class=RedirectResponse)
+async def root():
+    return RedirectResponse(url="/app/")
+
+@app.get(f"{WEB_APP_PREFIX}/", response_class=HTMLResponse)
+async def index(request: Request):
+    with news_lock:
+        if NEWS_JSON_PATH.exists():
+            with open(NEWS_JSON_PATH, 'r', encoding='utf-8') as f:
+                news_articles = json.load(f)
+        else:
+            news_articles = []
+
+    return templates.TemplateResponse("news.html", {"request": request, "articles": enumerate(news_articles)})
+
+@app.get(f"{WEB_APP_PREFIX}/article/{{article_id}}", response_class=HTMLResponse)
+async def article_detail(request: Request, article_id: int):
+    with news_lock:
+        if NEWS_JSON_PATH.exists():
+            with open(NEWS_JSON_PATH, 'r', encoding='utf-8') as f:
+                news_articles = json.load(f)
+        else:
+            news_articles = []
+
+    if 0 <= article_id < len(news_articles):
+        article = news_articles[article_id]
+
+        # Format the article text into HTML
+        article_text = article['text']
+        paragraphs = [p.strip() for p in article_text.split('\n') if p.strip()]
+        formatted_text = ''
+        for para in paragraphs:
+            if para.isupper():
+                # Assume uppercase lines are headings
+                formatted_text += f'<h2>{para.title()}</h2>'
+            else:
+                formatted_text += f'<p>{para}</p>'
+
+        # Check if audio is available (original)
+        audio_file_path = f"static/audio/article_{article_id}_original.mp3"
+        if os.path.exists(audio_file_path):
+            audio_available = True
+            audio_url = f"/{audio_file_path}"
+        else:
+            audio_available = False
+            audio_url = None
+
+        return templates.TemplateResponse(
+            "news_detail.html",
+            {
+                "request": request,
+                "article": article,
+                "formatted_text": formatted_text,
+                "article_id": article_id,
+                "audio_available": audio_available,
+                "audio_url": audio_url
+            }
+        )
+    else:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+@app.post(f"{WEB_APP_PREFIX}/article/{{article_id}}/adapt")
+async def adapt_article_text(article_id: int, request: Request):
+    data = await request.json()
+    level = data.get('level')
+
+    if not level:
+        return JSONResponse({'status': 'error', 'message': 'Level not specified'}, status_code=400)
+
+    with news_lock:
+        if NEWS_JSON_PATH.exists():
+            with open(NEWS_JSON_PATH, 'r', encoding='utf-8') as f:
+                news_articles = json.load(f)
+        else:
+            news_articles = []
+
+        if 0 <= article_id < len(news_articles):
+            article = news_articles[article_id]
+            adapted_texts = article.get('adapted_texts', {})
+            if level in adapted_texts:
+                adapted_text = adapted_texts[level]
+            else:
+                original_text = article['text']
+                adapted_text = adapt_text_to_level(original_text, level)
+                if adapted_text:
+                    adapted_texts[level] = adapted_text
+                    article['adapted_texts'] = adapted_texts
+
+                    with open(NEWS_JSON_PATH, 'w', encoding='utf-8') as f:
+                        json.dump(news_articles, f, ensure_ascii=False, indent=4)
+                else:
+                    return JSONResponse({'status': 'error', 'message': 'Error adapting text'}, status_code=500)
+
+            # Format the adapted text into HTML
+            paragraphs = [p.strip() for p in adapted_text.split('\n') if p.strip()]
+            formatted_adapted_text = ''
+            for para in paragraphs:
+                if para.isupper():
+                    formatted_adapted_text += f'<h2>{para.title()}</h2>'
+                else:
+                    formatted_adapted_text += f'<p>{para}</p>'
+
+            return JSONResponse({'status': 'success', 'adapted_text': formatted_adapted_text})
+        else:
+            raise HTTPException(status_code=404, detail="Article not found")
+# Updated /play endpoint to generate audio from provided text
+
+# Updated /play endpoint to generate audio from provided text
+@app.post(f"{WEB_APP_PREFIX}/play")
+async def generate_audio(request: Request):
+    data = await request.json()
+    text = data.get('text', '')
+    voice = data.get('voice', random.choice(female_voices + male_voices))  # Optional: specify voice
+
+    if not text:
+        return JSONResponse({'status': 'error', 'message': 'Text not provided'}, status_code=400)
+
+    # Generate audio
+    logger.info("Generating audio for provided text.")
+    temp_audio_path = generate_audio_content(text, voice)
+
+    if temp_audio_path:
+        # Generate unique audio file name to prevent caching
+        unique_suffix = random.randint(1000, 9999)
+        audio_file_path = f"static/audio/audio_{unique_suffix}.mp3"
+        os.makedirs(os.path.dirname(audio_file_path), exist_ok=True)
+        try:
+            shutil.move(temp_audio_path, audio_file_path)
+            logger.info(f"Audio file saved at {audio_file_path}")
+            audio_url = f"/{audio_file_path}"
+            return JSONResponse({'status': 'success', 'audio_url': audio_url})
+        except Exception as e:
+            logger.error(f"Failed to move audio file: {e}")
+            return JSONResponse({'status': 'error', 'message': 'Failed to save audio file'}, status_code=500)
+    else:
+        logger.error("Failed to generate audio")
+        return JSONResponse({'status': 'error', 'message': 'Audio generation failed'}, status_code=500)
+
 # Helper functions
 def send_message(update: Update, context: CallbackContext, text: str, reply_markup=None):
     if update.message:
@@ -46,6 +213,26 @@ def send_message(update: Update, context: CallbackContext, text: str, reply_mark
     elif update.callback_query:
         context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
     else:
+        context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
+
+def safe_edit_message_text(update: Update, context: CallbackContext, text, reply_markup=None):
+    try:
+        if update.callback_query and update.callback_query.message:
+            update.callback_query.edit_message_text(text=text, reply_markup=reply_markup)
+        else:
+            context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Failed to edit message: {e}")
+        context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
+
+def safe_edit_message_text(update: Update, context: CallbackContext, text, reply_markup=None):
+    try:
+        if update.callback_query and update.callback_query.message:
+            update.callback_query.edit_message_text(text=text, reply_markup=reply_markup)
+        else:
+            context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Failed to edit message: {e}")
         context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
 
 def safe_edit_message_text(update: Update, context: CallbackContext, text, reply_markup=None):
@@ -205,7 +392,7 @@ def adapt_and_send_news_article(update, context, idx) -> int:
 
         # Generate audio
         selected_voice = random.choice(female_voices + male_voices)  # Choose a voice
-        audio_file = generate_audio(adapted_text, selected_voice)
+        audio_file = generate_audio_content(adapted_text, selected_voice)
         if not audio_file:
             send_message(update, context, "Entschuldigung, es gab einen Fehler bei der Audio-Generierung.")
             return LEVEL
@@ -238,7 +425,9 @@ def adapt_and_send_news_article(update, context, idx) -> int:
         send_message(update, context, "Entschuldigung, es gab einen Fehler beim Verarbeiten des Artikels.")
         return LEVEL
 
-def generate_audio(text: str, voice: str) -> str:
+# ... [Rest of your code remains the same]
+
+def generate_audio_content(text: str, voice: str) -> str:
     logger.info(f"Generating audio with voice: {voice}")
 
     url = "https://api.openai.com/v1/audio/speech"
@@ -254,7 +443,15 @@ def generate_audio(text: str, voice: str) -> str:
 
     try:
         logger.info("Sending request to TTS API for audio.")
+        logger.debug(f"Request URL: {url}")
+        logger.debug(f"Request Headers: {headers}")
+        logger.debug(f"Request Data: {json.dumps(data, ensure_ascii=False)}")
+
         response = requests.post(url, headers=headers, json=data)
+        logger.debug(f"Response Status Code: {response.status_code}")
+        logger.debug(f"Response Headers: {response.headers}")
+        logger.debug(f"Response Content: {response.text}")
+
         response.raise_for_status()
         audio_content = response.content
 
@@ -266,10 +463,13 @@ def generate_audio(text: str, voice: str) -> str:
         return temp_audio_path
     except requests.exceptions.RequestException as e:
         logger.error(f"Error generating audio: {e}")
+        if e.response is not None:
+            logger.error(f"Response Content: {e.response.text}")
         return None
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return None
+
 
 def send_questions(update, context) -> int:
     adapted_text = context.user_data.get('adapted_text')
@@ -746,22 +946,9 @@ def update_news_articles(context: CallbackContext):
     context.bot_data['news_articles'] = news_articles
     logger.info("News articles updated in bot data.")
 
-def main():
-    # Fetch tokens securely from environment variables
-    telegram_bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-    openai_api_key_env = os.environ.get('OPENAI_API_KEY')  # Avoid overwriting the global variable
-
-    # Check if tokens are available
-    if not telegram_bot_token or not openai_api_key_env:
-        logger.error("Bot token or OpenAI API key not set in environment variables.")
-        return
-
-    global openai_api_key
-    openai_api_key = openai_api_key_env  # Assign to the global variable used in functions
-
-    # Initialize the updater and dispatcher
-    updater = Updater(telegram_bot_token, use_context=True)
-    dispatcher = updater.dispatcher
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Starting Telegram bot.")
 
     # Set up your ConversationHandler and other handlers
     conv_handler = ConversationHandler(
@@ -790,18 +977,45 @@ def main():
 
     dispatcher.add_handler(conv_handler)
 
-    # Use long polling
-    logger.info("Starting bot using long polling.")
-
-    # Initialize news articles
-    update_news_articles(dispatcher)
-
     # Set up job for updating news articles every hour
     job_queue = updater.job_queue
     job_queue.run_repeating(update_news_articles, interval=3600*6, first=3600*6)
 
+    # Use long polling
+    logger.info("Starting bot using long polling.")
     updater.start_polling()
-    updater.idle()
+    logger.info("Telegram bot started.")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("Stopping Telegram bot.")
+    updater.stop()
+    updater.is_idle = False
+    logger.info("Telegram bot stopped.")
+
+def main():
+    # Fetch tokens securely from environment variables
+    telegram_bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+    openai_api_key_env = os.environ.get('OPENAI_API_KEY')  # Avoid overwriting the global variable
+
+    # Check if tokens are available
+    if not telegram_bot_token or not openai_api_key_env:
+        logger.error("Bot token or OpenAI API key not set in environment variables.")
+        return
+
+    global openai_api_key
+    openai_api_key = openai_api_key_env  # Assign to the global variable used in functions
+
+    # Initialize news articles
+    update_news_articles(dispatcher)
+
+    # Run FastAPI with Uvicorn in the main thread
+    if __name__ == "__main__":
+        import uvicorn
+        PORT = int(os.environ.get('PORT', 8080))
+        uvicorn.run("main:app", host="0.0.0.0", port=PORT, log_level="info")
+
+
 
 if __name__ == '__main__':
     main()
