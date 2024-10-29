@@ -41,7 +41,7 @@ async def startup_event():
     # logger.info("Telegram bot started.")
 
     # Start the scheduler
-    scheduler.add_job(news_fetcher.update_articles, 'interval', hours=1)
+    scheduler.add_job(news_fetcher.update_articles, 'interval', hours=4)
     scheduler.start()
     logger.info("Scheduler started for news fetching.")
 
