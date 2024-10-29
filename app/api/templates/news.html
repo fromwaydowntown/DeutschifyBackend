@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>News Articles</title>
+    <!-- Responsive Meta Tag -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome for Icons -->
@@ -13,17 +15,17 @@
         /* Global Styles */
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: #121212;
-            color: #ffffff;
+            background-color: #1A1A1A; /* Dark background */
+            color: #FFFFFF; /* White text */
             padding-top: 80px;
             padding-bottom: 60px;
         }
         .container {
-            max-width: 1000px;
+            max-width: 1200px;
         }
         /* Header Styles */
         .navbar {
-            background-color: #1DB954;
+            background-color: #FF4500; /* Basketball orange */
         }
         .navbar-brand {
             font-weight: bold;
@@ -31,9 +33,9 @@
         }
         /* Article Card */
         .article-card {
-            background-color: #1E1E1E;
+            background-color: #2E2E2E; /* Slightly lighter than background */
             border-radius: 15px;
-            padding: 20px;
+            overflow: hidden; /* Ensure the image and content fit within the rounded corners */
             box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
             transition: transform 0.2s, box-shadow 0.2s;
         }
@@ -41,27 +43,41 @@
             transform: translateY(-5px);
             box-shadow: 0 8px 16px rgba(0,0,0,0.3);
         }
+        .article-card img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+        }
+        .article-card .card-body {
+            padding: 20px;
+        }
         .article-card h5 {
-            color: #1DB954;
+            color: #FF8C00; /* Lighter orange */
         }
         .article-card h6 {
             color: #B3B3B3;
         }
         .article-card p {
-            color: #B3B3B3;
+            color: #D3D3D3;
         }
         .read-more {
-            color: #1DB954;
+            color: #FF4500; /* Basketball orange */
             font-weight: bold;
             transition: color 0.3s;
         }
         .read-more:hover {
-            color: #17A44D;
+            color: #FF8C00;
             text-decoration: none;
         }
         /* Responsive Adjustments */
         @media (max-width: 576px) {
             .article-card {
+                margin-bottom: 20px;
+            }
+            .article-card img {
+                height: 150px;
+            }
+            .article-card .card-body {
                 padding: 15px;
             }
         }
@@ -71,7 +87,7 @@
     <!-- Navigation Bar -->
     <nav class="navbar navbar-expand-lg navbar-dark fixed-top">
         <div class="container-fluid">
-            <a class="navbar-brand" href="#">DeutschifyTelegram</a>
+            <a class="navbar-brand" href="#">Basketball News</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -80,16 +96,19 @@
     </nav>
 
     <div class="container">
-        <h1 class="mb-4 text-center">News Articles</h1>
-        <div class="row">
+        <h1 class="mb-4 text-center">Latest News</h1>
+        <div class="row g-4">
             {% for idx, article in articles %}
-                <div class="col-md-6 col-lg-4 mb-4">
+                <div class="col-md-6 col-lg-4">
                     <div class="card article-card h-100">
+                        {% if article['image_url'] %}
+                            <img src="{{ article['image_url'] }}" alt="Article Image">
+                        {% endif %}
                         <div class="card-body d-flex flex-column">
-                            <h5 class="card-title">{{ article['title'] }}</h5>
+                            <h5 class="card-title">{{ article['adapted_title'] }}</h5>
                             <h6 class="card-subtitle mb-2 text-muted">{{ article['published_date'] }}</h6>
-                            <p class="card-text flex-grow-1">{{ article['teaser'] }}</p>
-                            <a href="{{ url_for('article_detail', article_id=idx) }}" class="card-link read-more">Read more &rarr;</a>
+                            <p class="card-text flex-grow-1">{{ article['adapted_teaser'] | truncate(100, end='...') }}</p>
+                            <a href="{{ url_for('article_detail', article_id=idx) }}" class="card-link read-more mt-auto">Read more &rarr;</a>
                         </div>
                     </div>
                 </div>

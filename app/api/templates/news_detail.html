@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ article['adapted_title'] }}</title>
+    <!-- Responsive Meta Tag -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Google Fonts for Modern Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Global Styles */
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #1A1A1A; /* Dark background */
+            color: #FFFFFF; /* White text */
+            padding-top: 80px;
+            padding-bottom: 60px;
+        }
+        .container {
+            max-width: 800px;
+        }
+        /* Header Styles */
+        .navbar {
+            background-color: #FF4500; /* Basketball orange */
+        }
+        .navbar-brand {
+            font-weight: bold;
+            font-size: 1.5rem;
+        }
+        /* Article Card */
+        .article-card {
+            background-color: #2E2E2E; /* Slightly lighter than background */
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            margin-bottom: 30px;
+        }
+        .article-card h1 {
+            color: #FF8C00; /* Lighter orange for headings */
+        }
+        .article-card p {
+            color: #D3D3D3; /* Light gray for text */
+        }
+        .article-card img {
+            max-width: 100%;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        /* Teaser Box */
+        .teaser-box {
+            background-color: #383838; /* Slightly lighter background for contrast */
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+            margin-bottom: 20px;
+            font-size: 1.2rem; /* Bigger text */
+            line-height: 1.6;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        /* Audio Controls */
+        .audio-controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .audio-controls button {
+            background-color: #FF4500; /* Basketball orange */
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            color: #FFFFFF;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .audio-controls button:disabled {
+            background-color: #555555;
+            cursor: not-allowed;
+        }
+        .audio-controls button:hover:not(:disabled) {
+            background-color: #FF8C00;
+        }
+        /* Back Link */
+        .back-link {
+            margin-top: 20px;
+        }
+        /* Responsive Adjustments */
+        @media (max-width: 576px) {
+            .audio-controls {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">Basketball News</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavDetail" aria-controls="navbarNavDetail" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <!-- Future navigation items can be added here -->
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="article-card">
+            <!-- Adapted Title -->
+            <h1>{{ article['adapted_title'] }}</h1>
+            <p class="text-muted">{{ article['published_date'] }}</p>
+
+            <!-- Article Image -->
+            {% if article['image_url'] %}
+                <img src="{{ article['image_url'] }}" alt="Article Image">
+            {% endif %}
+
+            <!-- Adapted Teaser in Fancy Rounded Box -->
+            <div class="teaser-box">
+                {{ article['adapted_teaser'] | safe }}
+            </div>
+
+            <!-- Audio Player -->
+            <div id="audio-player" style="display: none;">
+                <audio controls id="audio-element">
+                    Your browser does not support the audio element.
+                </audio>
+            </div>
+
+            <!-- Audio Controls -->
+            <div class="audio-controls">
+                <button id="play-button" class="btn">
+                    <i class="fas fa-play"></i> Play Audio
+                </button>
+            </div>
+        </div>
+
+        <!-- Back Link -->
+        <div class="back-link mt-4">
+            <a href="{{ url_for('index') }}" class="btn btn-secondary">&larr; Back to Articles</a>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle with Popper.js -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Font Awesome JS for Icons -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <!-- Custom JavaScript -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const playButton = document.getElementById('play-button');
+            const audioPlayer = document.getElementById('audio-player');
+            const audioElement = document.getElementById('audio-element');
+            const adaptedText = `{{ article['adapted_teaser'] | safe }}`;
+
+            let currentAudioUrl = '';
+
+            // Handle Play Button Click
+            playButton.addEventListener('click', function() {
+                // Disable Play Button while processing and show spinner
+                playButton.disabled = true;
+                playButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+
+                // Send POST request to generate audio
+                fetch(`/app/play`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ text: adaptedText })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        currentAudioUrl = data.audio_url;
+
+                        // Update the audio player source
+                        audioElement.src = currentAudioUrl;
+                        audioPlayer.style.display = 'block';
+
+                        // Load and play the audio
+                        audioElement.load();
+                        audioElement.play().catch(error => {
+                            console.error('Audio playback error:', error);
+                            alert('Error playing audio.');
+                        });
+
+                        // Re-enable Play Button
+                        playButton.disabled = false;
+                        playButton.innerHTML = '<i class="fas fa-play"></i> Play Audio';
+                    } else {
+                        alert('Error generating audio.');
+                        // Re-enable Play Button with error state
+                        playButton.disabled = false;
+                        playButton.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+                    }
+                })
+                .catch(error => {
+                    console.error('Audio Generation Error:', error);
+                    alert('Error generating audio.');
+                    // Re-enable Play Button with error state
+                    playButton.disabled = false;
+                    playButton.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+                });
+            });
+        });
+    </script>
+</body>
+</html>
