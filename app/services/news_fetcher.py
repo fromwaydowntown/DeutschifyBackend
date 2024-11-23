@@ -11,7 +11,7 @@ class NewsFetcher(abc.ABC):
     def __init__(self):
         self.news_lock = threading.Lock()
         self.cached_articles = []
-        self.cache_expiration_time = 3600  # 1 hour in seconds
+        self.cache_expiration_time = 3600*5  # 1 hour in seconds
         self.last_updated = 0
 
     def is_cache_valid(self):

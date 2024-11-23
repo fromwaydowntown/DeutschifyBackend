@@ -1,8 +1,7 @@
 # app/services/audio_generator.py
+from io import BytesIO
+
 import requests
-import tempfile
-import shutil
-import os
 import random
 from app.config import settings
 from app.utils.logger import get_logger
@@ -23,13 +22,10 @@ class AudioGenerator:
     def get_random_voice(self):
         return random.choice(self.female_voices + self.male_voices)
 
-    def generate_unique_suffix(self) -> int:
-        return random.randint(1000, 9999)
-
-    def generate_audio(self, text: str, voice: str) -> str:
+    def generate_audio(self, text: str, voice: str):
         """
         Generates audio content from the provided text using the specified voice.
-        Returns the path to the temporary audio file.
+        Returns the audio content as a BytesIO object.
         """
         logger.info(f"Generating audio with voice: {voice}")
 
@@ -44,13 +40,8 @@ class AudioGenerator:
             response = requests.post(self.base_url, headers=self.headers, json=data)
             response.raise_for_status()
             audio_content = response.content
-
-            # Write to a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_audio:
-                temp_audio.write(audio_content)
-                temp_audio_path = temp_audio.name
-            logger.info("Audio file generated and saved.")
-            return temp_audio_path
+            logger.info("Audio content received from TTS API.")
+            return BytesIO(audio_content)
         except requests.exceptions.RequestException as e:
             logger.error(f"Error generating audio: {e}")
             if e.response is not None:
@@ -59,25 +50,3 @@ class AudioGenerator:
         except Exception as e:
             logger.error(f"An unexpected error occurred: {e}")
             return None
-
-    def save_audio(self, temp_audio_path: str, final_path: str):
-        """
-        Moves the temporary audio file to the final destination.
-        """
-        try:
-            shutil.move(temp_audio_path, final_path)
-            logger.info(f"Audio file moved to {final_path}")
-        except Exception as e:
-            logger.error(f"Failed to move audio file: {e}")
-            raise
-
-    def cleanup_temp_audio(self, temp_audio_path: str):
-        """
-        Removes the temporary audio file.
-        """
-        try:
-            if os.path.exists(temp_audio_path):
-                os.remove(temp_audio_path)
-                logger.info(f"Temporary audio file {temp_audio_path} removed.")
-        except Exception as e:
-            logger.error(f"Failed to remove temporary audio file: {e}")

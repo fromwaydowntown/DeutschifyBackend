@@ -15,6 +15,32 @@ class OpenAIClient:
             "Authorization": f"Bearer {self.api_key}"
         }
 
+    def adapt_text_with_prompt(self, prompt):
+        """
+        Uses OpenAI to process the text with a custom prompt.
+        """
+        data = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 1000,
+            "temperature": 0.7
+        }
+
+        try:
+            logger.info("Sending request to OpenAI API with custom prompt.")
+            response = requests.post(self.base_url, headers=self.headers, json=data)
+            response.raise_for_status()
+            result = response.json()
+            adapted_text = result['choices'][0]['message']['content'].strip()
+            logger.info("Text processed successfully.")
+            return adapted_text
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error processing text with custom prompt: {e}")
+            return None
+        except KeyError as e:
+            logger.error(f"Unexpected response format from OpenAI API: {e}")
+            return None
+
     def adapt_text_to_level(self, text, level):
         """
         Uses OpenAI to adapt the text to the user's German level (A1, A2, B1, etc.).
@@ -24,7 +50,7 @@ class OpenAIClient:
             return ''
 
         prompt = (
-            f"Bitte übersetze den folgenden Text ins Deutsche und passe ihn an das Niveau {level} an. "
+            f"Bitte passe den folgenden Text an das deutsche Niveau {level} an. "
             "Antworte nur mit dem angepassten Text, ohne zusätzliche Erläuterungen oder Kommentare.\n\n"
             f"{text}"
         )
@@ -46,6 +72,66 @@ class OpenAIClient:
         except requests.exceptions.RequestException as e:
             logger.error(f"Error adapting text to level {level}: {e}")
             return None
+
+    def extract_articles(self, prompt):
+        """
+        Uses the OpenAI API to extract articles from the given prompt.
+        """
+        data = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 2000,
+            "temperature": 0.5
+        }
+
+        try:
+            logger.info("Sending request to OpenAI API to extract articles.")
+            response = requests.post(self.base_url, headers=self.headers, json=data)
+            response.raise_for_status()
+            result = response.json()
+            extracted_text = result['choices'][0]['message']['content'].strip()
+            logger.info("Articles extracted successfully.")
+            return extracted_text
+        except requests.exceptions.RequestException as e:
+            logger.error(f"OpenAI API error during article extraction: {e}")
+            return ''
+
+    def extract_article_details(self, prompt):
+        """
+        Uses the OpenAI API to extract article details from the given prompt.
+        """
+        data = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 1000,
+            "temperature": 0.5
+        }
+
+        try:
+            logger.info("Sending request to OpenAI API to extract article details.")
+            response = requests.post(self.base_url, headers=self.headers, json=data)
+            response.raise_for_status()
+            result = response.json()
+            extracted_details = result['choices'][0]['message']['content'].strip()
+            logger.info("Article details extracted successfully.")
+            return extracted_details
+        except requests.exceptions.RequestException as e:
+            logger.error(f"OpenAI API error during article details extraction: {e}")
+            return ''
+
+    def get_token_count(self, text):
+        """
+        Estimates the token count of the given text.
+        """
+        # Simple approximation: 1 token ~ 4 characters
+        token_count = int(len(text) / 4)
+        return token_count
+
+    def get_char_limit_for_tokens(self, token_limit):
+        """
+        Returns character limit for the given token limit.
+        """
+        return token_limit * 4
 
     def generate_questions(self, text: str) -> str:
         """
@@ -76,7 +162,7 @@ class OpenAIClient:
         """
         prompt = (
             f"Extrahiere die wichtigsten Vokabeln aus dem folgenden Text und gib eine Liste mit Übersetzungen ins Englische:\n\n{text}\n\n"
-            "Vokabelliste (immer nutzen DER DIE DAS):"
+            "Vokabelliste (verwende immer den bestimmten Artikel):"
         )
         data = {
             "model": "gpt-4o-mini",
@@ -141,9 +227,7 @@ class OpenAIClient:
             "model": "gpt-4o-mini",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.5,
-            "max_tokens": 20,
-            "n": 1,
-            "stop": None
+            "max_tokens": 20
         }
 
         try:

@@ -4,6 +4,8 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.cors import CORSMiddleware
+
 from app.bot.bot import TelegramBot
 from app.config import settings
 from app.utils.logger import get_logger
@@ -20,6 +22,15 @@ app = FastAPI()
 # Include API routes
 app.include_router(api_router, prefix=settings.WEB_APP_PREFIX)
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],             # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],             # Allows all HTTP methods
+    allow_headers=["*"],             # Allows all headers
+)
+
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -32,7 +43,6 @@ scheduler = BackgroundScheduler(timezone=pytz.utc)  # You can specify any timezo
 def start_telegram_bot():
     logger.info("Starting Telegram bot.")
     telegram_bot.start()
-
 @app.on_event("startup")
 async def startup_event():
     # # Run the bot in a separate thread
@@ -41,7 +51,7 @@ async def startup_event():
     # logger.info("Telegram bot started.")
 
     # Start the scheduler
-    scheduler.add_job(news_fetcher.update_articles, 'interval', hours=4)
+    scheduler.add_job(news_fetcher.update_articles, 'interval', hours=5)
     scheduler.start()
     logger.info("Scheduler started for news fetching.")
 

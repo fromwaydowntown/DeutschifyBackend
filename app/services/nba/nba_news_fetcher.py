@@ -1,5 +1,3 @@
-# app/services/nba_news_fetcher.py
-
 from app.services.news_fetcher import NewsFetcher
 import requests
 from bs4 import BeautifulSoup
@@ -9,7 +7,6 @@ import time
 import json
 from app.utils.logger import get_logger
 from app.config import settings
-from pathlib import Path
 import re
 import html  # Import html module to unescape HTML entities
 
@@ -18,9 +15,11 @@ logger = get_logger(__name__)
 class NBANewsFetcher(NewsFetcher):
     def __init__(self):
         super().__init__()
-        self.news_json_path = settings.NEWS_JSON_PATH  # Ensure this path is set in settings
+        self.news_json_path = settings.NEWS_JSON_PATH
         self.cached_articles = self.load_cached_articles()
         self.openai_client = OpenAIClient()
+        self.news_lock = threading.Lock()
+        self.last_updated = time.time()
 
     def load_cached_articles(self):
         with self.news_lock:
@@ -41,6 +40,9 @@ class NBANewsFetcher(NewsFetcher):
             self.last_updated = time.time()
             logger.info(f"Saved {len(articles)} NBA news articles to cache.")
 
+    def is_cache_valid(self):
+        return self.cached_articles and (time.time() - self.last_updated) < 3600
+
     def get_cached_articles(self):
         if self.is_cache_valid():
             logger.info("Using cached NBA news.")
@@ -58,6 +60,28 @@ class NBANewsFetcher(NewsFetcher):
             logger.info("NBA news articles updated successfully.")
         else:
             logger.warning("No new NBA articles were fetched.")
+
+    def clean_html_content(self, html_content):
+        """
+        Cleans the HTML content by removing scripts, styles, and extracting the text content.
+        """
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        # Remove script, style, and other unwanted elements
+        for element in soup(['script', 'style', 'noscript', 'header', 'footer', 'nav', 'aside']):
+            element.decompose()
+
+        # Get the text content
+        text = soup.get_text(separator='\n')
+
+        # Decode HTML entities
+        text = html.unescape(text)
+
+        # Normalize whitespace
+        lines = [line.strip() for line in text.splitlines()]
+        text = '\n'.join(line for line in lines if line)
+
+        return text
 
     def fetch_articles(self):
         url = "https://www.slamdunk.ru/news/nba/"
@@ -81,13 +105,13 @@ class NBANewsFetcher(NewsFetcher):
             original_title = link_tag['title'].strip()
             article_url = link_tag['href']
 
-            # Extract the teaser from the main page
-            teaser_section = article.find('section', class_='invisionNews_grid_item__snippet')
-            if teaser_section:
-                original_teaser = teaser_section.get_text(separator='\n', strip=True)
-            else:
-                original_teaser = ''
-                logger.warning(f"Teaser not found for article: {original_title}")
+            # Adapt the title to the desired level
+            adapted_title = self.adapt_text_to_level(original_title, 'A1') or original_title
+
+            # Fetch detailed description and image URL
+            details = self.fetch_article_details(article_url)
+            adapted_teaser = details.get('adapted_description', '')
+
 
             # Extract the image URL from the style attribute
             # Use a lambda function to find the div with class containing 'invisionNews_grid_item__image'
@@ -112,18 +136,12 @@ class NBANewsFetcher(NewsFetcher):
                 image_url = ''
                 logger.warning(f"Image not found for article: {original_title}")
 
-            # Adapt the title and teaser to A1 level
-            adapted_title = self.adapt_text_to_level(original_title, 'A1') or original_title
-            adapted_teaser = self.adapt_text_to_level(original_teaser, 'A1') or original_teaser
-
-
             news_list.append({
                 'title': original_title,
                 'adapted_title': adapted_title,
                 'published_date': time.strftime('%Y-%m-%d'),
-                'teaser': original_teaser,
+                'teaser': '',  # Assuming teaser is not available; set to empty string
                 'adapted_teaser': adapted_teaser,
-                'text': '',  # Will be filled later
                 'image_url': image_url,
                 'url': article_url,
                 'adapted_texts': {}  # Empty dict; full article adaptation happens on demand
@@ -141,38 +159,23 @@ class NBANewsFetcher(NewsFetcher):
             logger.error(f"Failed to retrieve NBA article details. Error: {e}")
             return {}
 
-        soup = BeautifulSoup(response.content, 'html.parser')
-        title_meta = soup.find('meta', property='og:title')
-        image_meta = soup.find('meta', property='og:image')
+        # Clean the HTML content
+        cleaned_text = self.clean_html_content(response.content)
 
-        # Extract the article title
-        title = title_meta['content'] if title_meta else ''
+        # Create a prompt for the AI model
+        prompt = f"""
+Dies ist der Text von einer Basketball-Website. Bitte verstehe, was passiert ist, fasse es zusammen und passe es an das deutsche Niveau A1 an. Antworte nur mit dem angepassten Text.
 
-        # Extract the image URL
-        image_url = image_meta['content'] if image_meta else ''
+Text:
 
-        # Find the main content of the article
-        article_body_section = soup.find('section', class_='ipsType_richText ipsType_normal boxed withWidget')
-        if not article_body_section:
-            # Try alternative selectors if needed
-            article_body_section = soup.find('div', class_='article-content')
+{cleaned_text}
+"""
 
-        if article_body_section:
-            # Extract text content
-            article_body_text = article_body_section.get_text(separator='\n', strip=True)
-            # Extract HTML content if needed
-            article_body_html = ''.join(str(element) for element in article_body_section.contents)
-        else:
-            logger.warning(f"Article body not found for URL: {article_url}")
-            article_body_text = ''
-            article_body_html = ''
+        # Call the AI model to get the adapted description
+        adapted_description = self.openai_client.adapt_text_with_prompt(prompt)
 
-        logger.info(f"Fetched NBA article details: {title}")
         return {
-            'title': title,
-            'image_url': image_url,
-            'article_body_text': article_body_text,
-            'article_body_html': article_body_html
+            'adapted_description': adapted_description
         }
 
     def adapt_text_to_level(self, text, level):

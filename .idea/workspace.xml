@@ -4,32 +4,26 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="fc364f98-776d-46ad-847a-196205009dc9" name="Changes" comment="website created">
-      <change afterPath="$PROJECT_DIR$/app/api/routes.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/bot/bot.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/bot/handlers.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/bot/utils/utils.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/config.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/models/NewsArticle.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/services/audio_generator.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/services/dw_news_fetcher.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/services/nba_news_fetcher.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/services/news_fetcher.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/services/news_fetcher_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/services/openai_client.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/utils/logger.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/detail.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/nba.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/news_articles.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/static/audio/audio_4326.mp3" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/static/audio/audio_7606.mp3" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/static/audio/audio_8865.mp3" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Новости НБА.html" afterDir="false" />
+    <list default="true" id="fc364f98-776d-46ad-847a-196205009dc9" name="Changes" comment="prepare fly.io release">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/news.html" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/templates/news.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/news_detail.html" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/templates/news_detail.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Procfile" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/routes.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/routes.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/templates/news_detail.html" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/templates/news_detail.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/audio_generator.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/audio_generator.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/dw_news_fetcher.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/dw/dw_news_fetcher.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/nba_news_fetcher.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/nba/nba_news_fetcher.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/news_fetcher.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/news_fetcher.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/news_fetcher_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/news_fetcher_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/openai_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/openai_client.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/fly.toml" beforeDir="false" afterPath="$PROJECT_DIR$/fly.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/health.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/nba.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/news_articles.json" beforeDir="false" afterPath="$PROJECT_DIR$/news_articles.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run.sh" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -78,10 +72,11 @@
       <recent name="$PROJECT_DIR$" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/app/services/nba" />
+      <recent name="$PROJECT_DIR$/app/services/db" />
+      <recent name="$PROJECT_DIR$" />
       <recent name="$PROJECT_DIR$/app/api" />
       <recent name="$PROJECT_DIR$/app" />
-      <recent name="$PROJECT_DIR$/templates" />
-      <recent name="$PROJECT_DIR$" />
     </key>
   </component>
   <component name="RunManager" selected="Python.news">
@@ -98,7 +93,7 @@
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/app/main.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -191,7 +186,23 @@
       <option name="project" value="LOCAL" />
       <updated>1729719074894</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary="NBA news release 1.0">
+      <option name="closed" value="true" />
+      <created>1730242401720</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1730242401720</updated>
+    </task>
+    <task id="LOCAL-00007" summary="prepare fly.io release">
+      <option name="closed" value="true" />
+      <created>1730242477932</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1730242477932</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -212,6 +223,8 @@
     <MESSAGE value="news reworked" />
     <MESSAGE value="news reworked 2.0" />
     <MESSAGE value="website created" />
-    <option name="LAST_COMMIT_MESSAGE" value="website created" />
+    <MESSAGE value="NBA news release 1.0" />
+    <MESSAGE value="prepare fly.io release" />
+    <option name="LAST_COMMIT_MESSAGE" value="prepare fly.io release" />
   </component>
 </project>

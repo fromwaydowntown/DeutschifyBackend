@@ -126,7 +126,7 @@
 
             <!-- Adapted Teaser in Fancy Rounded Box -->
             <div class="teaser-box">
-                {{ article['adapted_teaser'] | safe }}
+                {{ formatted_adapted_text | safe }}
             </div>
 
             <!-- Audio Player -->
@@ -162,8 +162,6 @@
             const audioElement = document.getElementById('audio-element');
             const adaptedText = `{{ article['adapted_teaser'] | safe }}`;
 
-            let currentAudioUrl = '';
-
             // Handle Play Button Click
             playButton.addEventListener('click', function() {
                 // Disable Play Button while processing and show spinner
@@ -171,38 +169,36 @@
                 playButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
                 // Send POST request to generate audio
-                fetch(`/app/play`, {
+                fetch(`/api/play`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ text: adaptedText })
                 })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        currentAudioUrl = data.audio_url;
-
-                        // Update the audio player source
-                        audioElement.src = currentAudioUrl;
-                        audioPlayer.style.display = 'block';
-
-                        // Load and play the audio
-                        audioElement.load();
-                        audioElement.play().catch(error => {
-                            console.error('Audio playback error:', error);
-                            alert('Error playing audio.');
-                        });
-
-                        // Re-enable Play Button
-                        playButton.disabled = false;
-                        playButton.innerHTML = '<i class="fas fa-play"></i> Play Audio';
-                    } else {
-                        alert('Error generating audio.');
-                        // Re-enable Play Button with error state
-                        playButton.disabled = false;
-                        playButton.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
                     }
+                    return response.blob();
+                })
+                .then(blob => {
+                    const audioUrl = URL.createObjectURL(blob);
+
+                    // Update the audio player source
+                    audioElement.src = audioUrl;
+                    audioPlayer.style.display = 'block';
+
+                    // Load and play the audio
+                    audioElement.load();
+                    audioElement.play().catch(error => {
+                        console.error('Audio playback error:', error);
+                        alert('Error playing audio.');
+                    });
+
+                    // Re-enable Play Button
+                    playButton.disabled = false;
+                    playButton.innerHTML = '<i class="fas fa-play"></i> Play Audio';
                 })
                 .catch(error => {
                     console.error('Audio Generation Error:', error);

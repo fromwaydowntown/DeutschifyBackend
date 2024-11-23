@@ -4,7 +4,6 @@ primary_region = "fra"
 [env]
   PORT = "8080"
   FLY_APP_NAME = "deutschifytelegram"
-  # Removed OPENAI_API_KEY and TELEGRAM_BOT_TOKEN for security
 
 [[services]]
   internal_port = 8080
@@ -27,7 +26,7 @@ primary_region = "fra"
     interval = "15s"
     timeout = "2s"
     method = "GET"
-    path = "/app/"
+    path = "/app/health"
     protocol = "http"
     grace_period = "5s"
     restart_limit = 0
