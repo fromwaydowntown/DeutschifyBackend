@@ -65,3 +65,38 @@
    ```
 
 Now you're ready to start adapting NBA news into A1-level German!
+
+## 🔍 Backend Logic Overview
+
+The backend of DeutschifyTelegram is designed to efficiently process NBA news articles and adapt them into A1-level German for language learners. Here’s a step-by-step breakdown of the logic:
+
+### 1. **User Request**
+- When a user accesses the application, they can request the latest NBA news articles through the frontend interface.
+- The request is sent to the FastAPI backend via a RESTful API endpoint.
+
+### 2. **Fetching NBA News**
+- The backend retrieves the latest NBA news articles from a reliable sports news API or database.
+- This can involve making an HTTP request to an external API that provides real-time sports news.
+
+### 3. **Text Processing**
+- Once the articles are fetched, the backend processes the text to prepare it for adaptation. This involves:
+  - **Cleaning the Text**: Removing any unnecessary HTML tags, advertisements, or irrelevant content.
+  - **Extracting Key Information**: Identifying the main points of the articles that are relevant for adaptation.
+
+### 4. **AI-Powered Adaptation**
+- The core of the adaptation process involves using the OpenAI API:
+  - The cleaned and extracted text is sent to the OpenAI API with specific instructions to adapt the content to A1-level German.
+  - The API utilizes natural language processing to simplify complex sentences, replace difficult vocabulary with simpler alternatives, and ensure that the overall message remains intact while being accessible to A1 learners.
+
+### 5. **Receiving Adapted Text**
+- The backend receives the adapted text from the OpenAI API.
+- This adapted content is then formatted and prepared for delivery back to the user.
+
+### 6. **Response to User**
+- The backend sends the adapted A1-level German text back to the frontend as a JSON response.
+- The frontend then displays the adapted articles to the user, allowing them to read and engage with the content.
+
+### 7. **Additional Features**
+- **Text-to-Speech**: Users can listen to the adapted articles using the text-to-speech feature, which is integrated into the frontend.
+- **Learning Support**: The backend can also provide additional resources, such as vocabulary lists and comprehension exercises, based on the adapted text.
+
