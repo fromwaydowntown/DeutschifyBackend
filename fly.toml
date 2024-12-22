@@ -1,9 +1,9 @@
-app = "deutschifytelegram"
+app = "nba-news-in-easy-german"
 primary_region = "fra"
 
 [env]
   PORT = "8080"
-  FLY_APP_NAME = "deutschifytelegram"
+  FLY_APP_NAME = "nba-news-in-easy-german"
 
 [[services]]
   internal_port = 8080

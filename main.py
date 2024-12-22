@@ -6,11 +6,9 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
-from app.bot.bot import TelegramBot
 from app.config import settings
 from app.utils.logger import get_logger
 from apscheduler.schedulers.background import BackgroundScheduler
-import threading
 from app.api.routes import router as api_router
 from app.services.news_fetcher_service import news_fetcher  # Import the news_fetcher instance
 import pytz  # Import pytz
@@ -34,15 +32,8 @@ app.add_middleware(
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Initialize Telegram Bot
-telegram_bot = TelegramBot()
-
 # Initialize APScheduler with pytz timezone
 scheduler = BackgroundScheduler(timezone=pytz.utc)  # You can specify any timezone you prefer
-
-def start_telegram_bot():
-    logger.info("Starting Telegram bot.")
-    telegram_bot.start()
 @app.on_event("startup")
 async def startup_event():
     # # Run the bot in a separate thread

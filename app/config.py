@@ -12,7 +12,6 @@ import os
 from pathlib import Path
 
 class Settings:
-    TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
     WEB_APP_PREFIX = '/app'  # Or your desired prefix
     NEWS_JSON_PATH = Path('news_articles.json')
