@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🏀 DeutschifyTelegram
+# 🏀 DeutschifyNBA
 
-*Elevate your basketball news experience with DeutschifyTelegram, an innovative web application that seamlessly adapts NBA news into A1-level German, enhanced with AI-driven adaptations and immersive text-to-speech features.*
+*Elevate your basketball news experience with DeutschifyNBA, an innovative web application that seamlessly adapts NBA news into A1-level German, enhanced with AI-driven adaptations and immersive text-to-speech features.*
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![Python](https://img.shields.io/badge/Python-3.9-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
